@@ -1,5 +1,6 @@
 import { router, userProcedure, adminProcedure } from "@/server/trpc";
 import { prisma } from "@/server/lib/prisma";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
   locationGetInput,
@@ -7,6 +8,18 @@ import {
   locationUpdateInput,
 } from "@/server/schema/location.schema";
 import type { Prisma } from "@prisma/client";
+
+async function collectDescendantIds(rootId: string): Promise<string[]> {
+  const ids: string[] = [rootId];
+  const children = await prisma.location.findMany({
+    where: { parentId: rootId },
+    select: { id: true },
+  });
+  for (const child of children) {
+    ids.push(...(await collectDescendantIds(child.id)));
+  }
+  return ids;
+}
 
 export const locationRouter = router({
   create: adminProcedure.input(locationInput).mutation(async ({ input }) => {
@@ -127,8 +140,27 @@ export const locationRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ input }) => {
-      return prisma.location.delete({
-        where: { id: input.id },
+      const allIds = await collectDescendantIds(input.id);
+
+      const itemCount = await prisma.item.count({
+        where: { locationId: { in: allIds }, deleted: false },
+      });
+
+      if (itemCount > 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot delete: ${itemCount} item${itemCount > 1 ? "s are" : " is"} still assigned to this location or its children. Move or delete them first.`,
+        });
+      }
+
+      return prisma.$transaction(async (tx) => {
+        await tx.location.updateMany({
+          where: { id: { in: allIds } },
+          data: { parentId: null },
+        });
+        await tx.location.deleteMany({
+          where: { id: { in: allIds } },
+        });
       });
     }),
 
