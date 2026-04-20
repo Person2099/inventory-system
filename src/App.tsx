@@ -1,4 +1,4 @@
-import { Route, BrowserRouter, Routes } from "react-router-dom";
+import { Route, BrowserRouter, Routes, Navigate } from "react-router-dom";
 import Assets from "@/pages/Assets";
 import Consumables from "@/pages/Consumables";
 import Dashboard from "@/pages/Dashboard";
@@ -39,6 +39,7 @@ const App = () => {
             <Route path="error" element={<ErrorPage />} />
             <Route path="/auth/:pathname" element={<AuthPage />} />
             <Route path="/" element={<ProtectedLayout />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/transactions" element={<Transaction />} />
               <Route path="/assets/*" element={<Assets />} />
