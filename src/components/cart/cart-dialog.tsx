@@ -32,7 +32,9 @@ export const formSchema = z.object({
 
 export type CartForm = z.infer<typeof formSchema>;
 
-function getItemInvalidReason(item: ReturnType<typeof useCart>["items"][number]): string | null {
+function getItemInvalidReason(
+  item: ReturnType<typeof useCart>["items"][number],
+): string | null {
   if (item.consumable) {
     if (item.quantity > (item.consumable.available ?? 0)) {
       return `Only ${item.consumable.available} available`;
@@ -57,7 +59,10 @@ export default function CartDialog() {
 
   const invalidReasons = new Map<string, string>(
     items
-      .map((item) => [item.id, getItemInvalidReason(item)] as [string, string | null])
+      .map(
+        (item) =>
+          [item.id, getItemInvalidReason(item)] as [string, string | null],
+      )
       .filter((entry): entry is [string, string] => entry[1] !== null),
   );
   const hasInvalidItems = invalidReasons.size > 0;

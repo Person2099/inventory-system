@@ -212,7 +212,9 @@ export function AddDialog() {
               </div>
             )}
             <div className="space-y-2 pt-2 border-t">
-              <Label className="text-sm font-medium">Override Serial Number</Label>
+              <Label className="text-sm font-medium">
+                Override Serial Number
+              </Label>
               <p className="text-xs text-muted-foreground">
                 Set a specific serial number for this item.
               </p>

@@ -32,7 +32,9 @@ export const itemRouter = router({
       };
 
       if (input.serial) {
-        return prisma.item.create({ data: { ...baseData, serial: input.serial } });
+        return prisma.item.create({
+          data: { ...baseData, serial: input.serial },
+        });
       }
       return prisma.item.createSerial({ data: baseData });
     }),

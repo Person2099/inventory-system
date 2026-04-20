@@ -37,7 +37,9 @@ export const CartDialogItem = React.memo(
     );
 
     return (
-      <div className={`flex w-full min-h-10 items-center rounded-md justify-between gap-3 p-2 hover:bg-muted transition-colors ${invalidReason ? "border border-destructive/50 bg-destructive/5" : ""}`}>
+      <div
+        className={`flex w-full min-h-10 items-center rounded-md justify-between gap-3 p-2 hover:bg-muted transition-colors ${invalidReason ? "border border-destructive/50 bg-destructive/5" : ""}`}
+      >
         {/* Left Section - Image + Name */}
         <div className="flex gap-3 items-center flex-shrink-0">
           <div className="aspect-square h-12 border rounded-lg overflow-hidden">
