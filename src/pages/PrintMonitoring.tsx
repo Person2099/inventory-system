@@ -570,8 +570,10 @@ function WebcamOverview({
 
   const gridClass =
     webcamPrinters.length === 1
-      ? "grid gap-6 max-w-2xl mx-auto w-full"
-      : "grid gap-6 grid-cols-2";
+      ? "grid gap-6 max-w-3xl mx-auto w-full"
+      : webcamPrinters.length === 2
+        ? "grid gap-6 grid-cols-2"
+        : "grid gap-6 grid-cols-3";
 
   return (
     <Dialog
@@ -580,7 +582,10 @@ function WebcamOverview({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-[96vw] w-[96vw] max-h-[96vh] h-[96vh] overflow-y-auto flex flex-col">
+      <DialogContent
+        className="max-h-[96vh] h-[96vh] overflow-y-auto flex flex-col"
+        style={{ width: "calc(100vw - 2rem)", maxWidth: "calc(100vw - 2rem)" }}
+      >
         <DialogHeader>
           <div className="flex items-center justify-between gap-4 pr-6">
             <DialogTitle>All Webcams</DialogTitle>
