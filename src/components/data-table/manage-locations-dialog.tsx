@@ -99,7 +99,8 @@ function LocationRow({
   };
 
   const validParents = allLocations.filter(
-    (l) => l.id !== location.id && !isDescendant(l.id, location.id, allLocations),
+    (l) =>
+      l.id !== location.id && !isDescendant(l.id, location.id, allLocations),
   );
 
   if (editing) {

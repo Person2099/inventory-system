@@ -568,6 +568,11 @@ function WebcamOverview({
   const webcamPrinters = printers.filter((p) => p.webcamUrl);
   const [globalTick, setGlobalTick] = useState(0);
 
+  const gridClass =
+    webcamPrinters.length === 1
+      ? "grid gap-6 max-w-2xl mx-auto w-full"
+      : "grid gap-6 grid-cols-2";
+
   return (
     <Dialog
       open
@@ -575,7 +580,7 @@ function WebcamOverview({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[96vw] w-[96vw] max-h-[96vh] h-[96vh] overflow-y-auto flex flex-col">
         <DialogHeader>
           <div className="flex items-center justify-between gap-4 pr-6">
             <DialogTitle>All Webcams</DialogTitle>
@@ -595,7 +600,7 @@ function WebcamOverview({
             No printers have a webcam URL configured.
           </p>
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 justify-items-center">
+          <div className={gridClass}>
             {webcamPrinters.map((printer) => (
               <WebcamTile
                 key={printer.id}
