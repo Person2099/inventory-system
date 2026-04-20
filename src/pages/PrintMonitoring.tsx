@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { Video } from "lucide-react";
 
 type CameraMode = "stream" | "snapshot";
 
@@ -511,6 +512,104 @@ function PrinterDetail({
   );
 }
 
+// ─── Webcam overview ─────────────────────────────────────────────────────────
+
+function WebcamTile({
+  printer,
+  globalTick,
+}: {
+  printer: {
+    id: string;
+    name: string;
+    type: string;
+    ipAddress: string;
+    webcamUrl: string | null;
+  };
+  globalTick: number;
+}) {
+  const [localTick, setLocalTick] = useState(0);
+  const tick = globalTick + localTick;
+
+  const cameraUrl = useMemo(
+    () => buildProxyCameraUrl(printer.id, "snapshot", tick),
+    [printer.id, tick],
+  );
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className="overflow-hidden rounded-lg border bg-black aspect-video w-full cursor-pointer"
+        onClick={() => setLocalTick((n) => n + 1)}
+      >
+        <img
+          src={cameraUrl}
+          alt={`${printer.name} camera`}
+          className="h-full w-full object-contain"
+        />
+      </div>
+      <p className="text-sm font-medium text-center">{printer.name}</p>
+    </div>
+  );
+}
+
+function WebcamOverview({
+  printers,
+  onClose,
+}: {
+  printers: {
+    id: string;
+    name: string;
+    type: string;
+    ipAddress: string;
+    webcamUrl: string | null;
+  }[];
+  onClose: () => void;
+}) {
+  const webcamPrinters = printers.filter((p) => p.webcamUrl);
+  const [globalTick, setGlobalTick] = useState(0);
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center justify-between gap-4 pr-6">
+            <DialogTitle>All Webcams</DialogTitle>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setGlobalTick((n) => n + 1)}
+            >
+              Refresh All
+            </Button>
+          </div>
+        </DialogHeader>
+
+        {webcamPrinters.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            No printers have a webcam URL configured.
+          </p>
+        ) : (
+          <div className="grid gap-6 sm:grid-cols-2 justify-items-center">
+            {webcamPrinters.map((printer) => (
+              <WebcamTile
+                key={printer.id}
+                printer={printer}
+                globalTick={globalTick}
+              />
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PrintMonitoring() {
@@ -534,6 +633,7 @@ export default function PrintMonitoring() {
   const [selectedPrinterIp, setSelectedPrinterIp] = useState<string | null>(
     null,
   );
+  const [webcamOverviewOpen, setWebcamOverviewOpen] = useState(false);
 
   const printers = printersQuery.data ?? [];
   const totalPages = Math.max(1, Math.ceil(printers.length / PAGE_SIZE));
@@ -547,12 +647,24 @@ export default function PrintMonitoring() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Printer Monitoring</h1>
-        <p className="text-muted-foreground">
-          Overview of all printers. Click a printer for full telemetry and
-          camera feed.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Printer Monitoring</h1>
+          <p className="text-muted-foreground">
+            Overview of all printers. Click a printer for full telemetry and
+            camera feed.
+          </p>
+        </div>
+        {printers.some((p) => p.webcamUrl) ? (
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => setWebcamOverviewOpen(true)}
+          >
+            <Video className="mr-2 h-4 w-4" />
+            View All Webcams
+          </Button>
+        ) : null}
       </div>
 
       {printersQuery.isLoading ? (
@@ -608,6 +720,14 @@ export default function PrintMonitoring() {
           printer={selectedPrinter}
           onClose={() => setSelectedPrinterIp(null)}
           printedBy={printedByMap.get(selectedPrinter.ipAddress) ?? null}
+        />
+      ) : null}
+
+      {/* Webcam overview dialog */}
+      {webcamOverviewOpen ? (
+        <WebcamOverview
+          printers={printers}
+          onClose={() => setWebcamOverviewOpen(false)}
         />
       ) : null}
     </div>
