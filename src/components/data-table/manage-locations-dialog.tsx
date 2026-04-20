@@ -62,6 +62,21 @@ function LocationRow({
   const [nameValue, setNameValue] = useState(location.name);
   const [parentValue, setParentValue] = useState(location.parentId ?? "none");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmArchivedDelete, setConfirmArchivedDelete] = useState(false);
+  const [serverArchivedItemCount, setServerArchivedItemCount] = useState<
+    number | null
+  >(null);
+
+  const collectSubtreeLocationIds = (rootId: string): string[] => {
+    const ids = [rootId];
+    const children = allLocations.filter((loc) => loc.parentId === rootId);
+
+    for (const child of children) {
+      ids.push(...collectSubtreeLocationIds(child.id));
+    }
+
+    return ids;
+  };
 
   const updateMut = trpc.location.update.useMutation({
     onSuccess: () => {
@@ -77,7 +92,21 @@ function LocationRow({
       toast.success("Location deleted.");
       onDeleted();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      const marker = "ARCHIVED_DELETE_CONFIRMATION_REQUIRED:";
+      if (e.message.startsWith(marker)) {
+        const parsed = Number.parseInt(
+          e.message.replace(marker, "").split(":")[0] ?? "",
+          10,
+        );
+        setServerArchivedItemCount(Number.isFinite(parsed) ? parsed : null);
+        setConfirmDelete(false);
+        setConfirmArchivedDelete(true);
+        return;
+      }
+
+      toast.error(e.message);
+    },
   });
 
   const handleSave = () => {
@@ -102,6 +131,35 @@ function LocationRow({
     (l) =>
       l.id !== location.id && !isDescendant(l.id, location.id, allLocations),
   );
+
+  const subtreeLocationIds = new Set(collectSubtreeLocationIds(location.id));
+  const subtreeItems = allLocations
+    .filter((loc) => subtreeLocationIds.has(loc.id))
+    .flatMap((loc) => loc.items);
+  const activeItemCount = subtreeItems.filter((item) => !item.deleted).length;
+  const archivedItemCount = subtreeItems.filter((item) => item.deleted).length;
+
+  const requestDelete = () => {
+    setServerArchivedItemCount(null);
+
+    if (archivedItemCount > 0 && activeItemCount === 0) {
+      setConfirmDelete(false);
+      setConfirmArchivedDelete(true);
+      return;
+    }
+
+    deleteMut.mutate({ id: location.id });
+    setConfirmDelete(false);
+  };
+
+  const requestDeleteWithArchivedItems = () => {
+    setServerArchivedItemCount(null);
+    deleteMut.mutate({
+      id: location.id,
+      forceDeleteArchivedItems: true,
+    });
+    setConfirmArchivedDelete(false);
+  };
 
   if (editing) {
     return (
@@ -200,9 +258,36 @@ function LocationRow({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteMut.mutate({ id: location.id })}
+              onClick={requestDelete}
             >
               {deleteMut.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmArchivedDelete}
+        onOpenChange={setConfirmArchivedDelete}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete archived items in "{location.name}"?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {`This location tree contains ${serverArchivedItemCount ?? archivedItemCount} archived item${(serverArchivedItemCount ?? archivedItemCount) > 1 ? "s" : ""}. If you continue, those archived items will be permanently deleted and their data will no longer be available.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={requestDeleteWithArchivedItems}
+            >
+              {deleteMut.isPending
+                ? "Deleting…"
+                : "Delete Location and Archived Items"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
