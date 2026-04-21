@@ -123,7 +123,9 @@ export default function Cart() {
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       )[0];
       if (latest?.loaned) {
-        toast.error(`${data.name} is currently on loan and cannot be checked out.`);
+        toast.error(
+          `${data.name} is currently on loan and cannot be checked out.`,
+        );
         setQrCode("");
         return;
       }
