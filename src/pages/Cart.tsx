@@ -117,6 +117,20 @@ export default function Cart() {
       return;
     }
 
+    if (!data.consumable) {
+      const latest = data.ItemRecords?.slice().sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )[0];
+      if (latest?.loaned) {
+        toast.error(
+          `${data.name} is currently on loan and cannot be checked out.`,
+        );
+        setQrCode("");
+        return;
+      }
+    }
+
     if (!data.consumable && itemInCart(data.id)) {
       toast.info("Item is already in your cart");
       setQrCode("");

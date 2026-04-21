@@ -257,6 +257,24 @@ export function CartProvider({
 
   // Cart actions
   const addItem = (cartItem: CartItem) => {
+    if (!cartItem.consumable) {
+      if (cartItem.stored === false) {
+        toast.error(
+          `${cartItem.name} is marked as Lab Use and cannot be checked out.`,
+        );
+        return false;
+      }
+
+      const latest = cartItem.ItemRecords?.slice().sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )[0];
+      if (latest?.loaned) {
+        toast.error(`${cartItem.name} is currently on loan.`);
+        return false;
+      }
+    }
+
     const existingItem = state.items.find((item) => item.id === cartItem.id);
     const nextItem = resolveCartItemAddition(existingItem, cartItem);
 
