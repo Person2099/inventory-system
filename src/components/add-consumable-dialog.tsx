@@ -26,16 +26,16 @@ export function AddConsumableDialog({
   onClose,
 }: AddConsumableDialogProps) {
   const { addItem, getItem } = useCart();
-  const currentQuantity = getItem(item.id)?.quantity ?? 0;
+  const currentQuantity = getItem(item?.id ?? "")?.quantity ?? 0;
   const availableToAdd = Math.max(
-    getCartItemMaxQuantity(item) - currentQuantity,
+    getCartItemMaxQuantity(item!) - currentQuantity,
     0,
   );
   const [itemQty, setItemQty] = useState(1);
 
   useEffect(() => {
     setItemQty(availableToAdd > 0 ? 1 : 0);
-  }, [availableToAdd, item.id]);
+  }, [availableToAdd, item?.id]);
 
   if (!item) {
     return;
