@@ -639,6 +639,34 @@ export const printRouter = router({
         };
       }
 
+      interface PrusaStatusResponse {
+        printer?: {
+          state?: string;
+          temp_nozzle?: number;
+          target_nozzle?: number;
+          temp_bed?: number;
+          target_bed?: number;
+        };
+        job?: {
+          id?: number;
+          progress?: number;
+          time_remaining?: number;
+          time_printing?: number;
+        };
+      }
+      interface PrusaJobResponse {
+        id?: number;
+        state?: string;
+        progress?: number;
+        time_remaining?: number;
+        time_printing?: number;
+        file?: {
+          name?: string;
+          display_name?: string;
+          meta?: { filament_type?: string; material?: string };
+        };
+      }
+
       try {
         const [statusRes, jobRes] = await Promise.all([
           fetch(`http://${printer.ipAddress}/api/v1/status`, {
@@ -666,38 +694,6 @@ export const printRouter = router({
             filamentType: null,
             amsTrays: [],
             chamberTemp: null,
-          };
-        }
-
-        interface PrusaStatusResponse {
-          printer?: {
-            state?: string;
-            temp_nozzle?: number;
-            target_nozzle?: number;
-            temp_bed?: number;
-            target_bed?: number;
-          };
-          job?: {
-            id?: number;
-            progress?: number;
-            time_remaining?: number;
-            time_printing?: number;
-          };
-        }
-
-        interface PrusaJobResponse {
-          id?: number;
-          state?: string;
-          progress?: number;
-          time_remaining?: number;
-          time_printing?: number;
-          file?: {
-            name?: string;
-            display_name?: string;
-            meta?: {
-              filament_type?: string;
-              material?: string;
-            };
           };
         }
 
@@ -1682,7 +1678,17 @@ export const printRouter = router({
     .query(async ({ ctx }) => {
       const printers = await ctx.prisma.printer.findMany();
 
-      const activePrints: {
+      interface PrusaActiveStatus {
+        printer?: { state?: string };
+        job?: { progress?: number; time_remaining?: number };
+      }
+      interface PrusaActiveJob {
+        file?: { name?: string; display_name?: string };
+        progress?: number;
+        time_remaining?: number;
+      }
+
+      type ActivePrintEntry = {
         printerName: string;
         printerType: string;
         ipAddress: string;
@@ -1692,7 +1698,9 @@ export const printRouter = router({
         timeRemaining: number | null;
         startedBy: { name: string; email: string } | null;
         jobStartedAt: Date | null;
-      }[] = [];
+      };
+
+      const activePrints: ActivePrintEntry[] = [];
 
       for (const printer of printers) {
         let state = "UNKNOWN";
@@ -1735,16 +1743,6 @@ export const printRouter = router({
             ]);
             if (!statusRes.ok) continue;
 
-            interface PrusaActiveStatus {
-              printer?: { state?: string };
-              job?: { progress?: number; time_remaining?: number };
-            }
-            interface PrusaActiveJob {
-              file?: { name?: string; display_name?: string };
-              progress?: number;
-              time_remaining?: number;
-            }
-
             const status = (await statusRes.json()) as PrusaActiveStatus;
             const printerState =
               status.printer?.state?.trim()?.toUpperCase() ?? "UNKNOWN";
@@ -1769,16 +1767,9 @@ export const printRouter = router({
 
         // Find who started this print — most recent DISPATCHED job for this printer
         const recentJob = await ctx.prisma.gcodePrintJob.findFirst({
-          where: {
-            printerId: printer.id,
-            status: "DISPATCHED",
-          },
+          where: { printerId: printer.id, status: "DISPATCHED" },
           orderBy: { createdAt: "desc" },
-          include: {
-            user: {
-              select: { name: true, email: true },
-            },
-          },
+          include: { user: { select: { name: true, email: true } } },
         });
 
         activePrints.push({
