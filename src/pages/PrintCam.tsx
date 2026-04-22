@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/client/trpc";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
+import { VideoOff } from "lucide-react";
 
 interface PrinterCam {
   id: string;
@@ -45,11 +45,11 @@ function formatDuration(totalSeconds: number): string {
 
 function statusAccentColor(state: string): string {
   const s = state.toUpperCase();
-  if (["PRINTING", "BUSY"].includes(s)) return "#facc15"; // yellow-400
-  if (["PAUSED"].includes(s)) return "#fb923c"; // orange-400
-  if (["ATTENTION", "UNREACHABLE"].includes(s)) return "#f87171"; // red-400
-  if (["IDLE", "READY", "FINISHED"].includes(s)) return "#4ade80"; // green-400
-  return "#71717a"; // zinc-500
+  if (["PRINTING", "BUSY"].includes(s)) return "#facc15";
+  if (["PAUSED"].includes(s)) return "#fb923c";
+  if (["ATTENTION", "UNREACHABLE"].includes(s)) return "#f87171";
+  if (["IDLE", "READY", "FINISHED"].includes(s)) return "#4ade80";
+  return "#71717a";
 }
 
 function statusLabel(state: string, stateMessage: string): string {
@@ -63,23 +63,34 @@ function WebcamTile({
   printer,
   globalTick,
   tileHeight,
+  printedBy,
 }: {
   printer: PrinterCam;
   globalTick: number;
   tileHeight: number;
+  printedBy: string | null;
 }) {
   const [localTick, setLocalTick] = useState(0);
+  const [imgError, setImgError] = useState(false);
   const tick = globalTick + localTick;
+
+  const statusQuery = trpc.print.getPrinterStatus.useQuery(
+    { printerIpAddress: printer.ipAddress },
+    { refetchInterval: 10_000 },
+  );
 
   const cameraUrl = useMemo(
     () => buildProxyCameraUrl(printer.id, tick),
     [printer.id, tick],
   );
 
-  const statusQuery = trpc.print.getPrinterStatus.useQuery(
-    { printerIpAddress: printer.ipAddress },
-    { refetchInterval: 10_000 },
-  );
+  useEffect(() => {
+    setImgError(false);
+  }, [cameraUrl]);
+
+  const handleImgError = useCallback(() => {
+    setImgError(true);
+  }, []);
 
   const data = statusQuery.data;
   const accentColor = data ? statusAccentColor(data.state) : "#71717a";
@@ -87,7 +98,6 @@ function WebcamTile({
   const isPaused = data?.state.toUpperCase() === "PAUSED";
   const showProgress = data?.progress != null && (isPrinting || isPaused);
 
-  // Scale text and spacing proportionally — larger tiles get readable text
   const scale = Math.min(1, tileHeight / 220);
   const fontSize = Math.max(8, Math.round(11 * scale));
   const smallFontSize = Math.max(7, Math.round(9 * scale));
@@ -108,12 +118,40 @@ function WebcamTile({
         }}
       />
 
-      {/* Webcam image */}
-      <img
-        src={cameraUrl}
-        alt={`${printer.name} camera`}
-        className="h-full w-full object-contain"
-      />
+      {/* Webcam feed — only rendered once status is available */}
+      {!data ? (
+        <div className="h-full w-full flex items-center justify-center bg-zinc-900">
+          <span
+            className="text-zinc-500 font-medium animate-pulse"
+            style={{ fontSize }}
+          >
+            Loading…
+          </span>
+        </div>
+      ) : imgError ? (
+        <div className="h-full w-full flex flex-col items-center justify-center gap-2 bg-zinc-900">
+          <VideoOff
+            className="text-zinc-500"
+            style={{
+              width: Math.max(20, Math.round(36 * scale)),
+              height: Math.max(20, Math.round(36 * scale)),
+            }}
+          />
+          <span
+            className="text-zinc-500 font-medium text-center leading-tight px-2"
+            style={{ fontSize }}
+          >
+            Webcam unavailable
+          </span>
+        </div>
+      ) : (
+        <img
+          src={cameraUrl}
+          alt={`${printer.name} camera`}
+          className="h-full w-full object-contain"
+          onError={handleImgError}
+        />
+      )}
 
       {/* Bottom gradient overlay */}
       <div
@@ -126,17 +164,26 @@ function WebcamTile({
           gap: Math.max(2, Math.round(4 * scale)),
         }}
       >
-        {/* Printer name + status */}
         <div
           className="flex items-center justify-between gap-1"
           style={{ gap: Math.max(3, Math.round(6 * scale)) }}
         >
-          <span
-            className="text-white font-bold truncate leading-tight"
-            style={{ fontSize }}
-          >
-            {printer.name}
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span
+              className="text-white font-bold truncate leading-tight"
+              style={{ fontSize }}
+            >
+              {printer.name}
+            </span>
+            {printedBy && (
+              <span
+                className="text-white/50 truncate leading-tight"
+                style={{ fontSize: smallFontSize }}
+              >
+                {printedBy}
+              </span>
+            )}
+          </div>
           <span
             className="shrink-0 rounded-full font-semibold uppercase tracking-wide leading-none whitespace-nowrap"
             style={{
@@ -154,7 +201,6 @@ function WebcamTile({
           </span>
         </div>
 
-        {/* Progress bar + metrics */}
         {showProgress && (
           <div
             style={{
@@ -192,7 +238,6 @@ function WebcamTile({
           </div>
         )}
 
-        {/* Temps + filament */}
         {data && (
           <div
             className="flex items-center flex-wrap text-white/55 leading-none"
@@ -226,10 +271,7 @@ function WebcamTile({
             {data.filamentType && (
               <span
                 className="font-semibold rounded"
-                style={{
-                  color: accentColor,
-                  opacity: 0.9,
-                }}
+                style={{ color: accentColor, opacity: 0.9 }}
               >
                 {data.filamentType}
               </span>
@@ -238,7 +280,6 @@ function WebcamTile({
         )}
       </div>
 
-      {/* Hover refresh hint */}
       <div
         className="absolute inset-0 z-30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
         style={{ backgroundColor: "rgba(0,0,0,0.15)" }}
@@ -278,8 +319,36 @@ export default function PrintCam() {
     return () => observer.disconnect();
   }, []);
 
+  const handleRefreshAll = useCallback(() => {
+    setGlobalTick((n) => n + 1);
+  }, []);
+
   const printersQuery = trpc.print.getPrinterMonitoringOptions.useQuery();
-  const webcamPrinters = (printersQuery.data ?? []).filter((p) => p.webcamUrl);
+
+  const activePrintsQuery = trpc.print.getActivePrints.useQuery(undefined, {
+    refetchInterval: 10_000,
+  });
+
+  const printedByMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ap of activePrintsQuery.data ?? []) {
+      if (ap.startedBy) {
+        map.set(ap.ipAddress, ap.startedBy.name);
+      }
+    }
+    return map;
+  }, [activePrintsQuery.data]);
+
+  const webcamPrinters = useMemo(
+    () =>
+      (printersQuery.data ?? [])
+        .filter((p) => p.webcamUrl)
+        .sort(
+          (a, b) =>
+            a.type.localeCompare(b.type) || a.name.localeCompare(b.name),
+        ),
+    [printersQuery.data],
+  );
 
   const isMobile = containerSize.w > 0 && containerSize.w < MIN_DESKTOP_WIDTH;
 
@@ -304,7 +373,10 @@ export default function PrintCam() {
   }, [rows, containerSize.h]);
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 2rem)" }}>
+    <div
+      className="relative flex flex-col"
+      style={{ height: "calc(100vh - 2rem)" }}
+    >
       <div className="flex items-center justify-between gap-4 mb-3 shrink-0">
         <div>
           <h1 className="text-2xl font-bold">All Webcams</h1>
@@ -317,12 +389,18 @@ export default function PrintCam() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setGlobalTick((n) => n + 1)}
+            onClick={handleRefreshAll}
           >
             Refresh All
           </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link to="/print-monitor">← Back</Link>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              window.location.href = "/print-monitor";
+            }}
+          >
+            ← Back
           </Button>
         </div>
       </div>
@@ -330,6 +408,11 @@ export default function PrintCam() {
       <div ref={gridContainerRef} className="flex-1 min-h-0 overflow-hidden">
         {printersQuery.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading webcams…</p>
+        ) : printersQuery.isError ? (
+          <p className="text-sm text-red-500">
+            Failed to load printer monitoring data:{" "}
+            {printersQuery.error.message}
+          </p>
         ) : webcamPrinters.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No printers have a webcam URL configured.
@@ -357,6 +440,7 @@ export default function PrintCam() {
                 printer={printer}
                 globalTick={globalTick}
                 tileHeight={tileHeight}
+                printedBy={printedByMap.get(printer.ipAddress) ?? null}
               />
             ))}
           </div>
