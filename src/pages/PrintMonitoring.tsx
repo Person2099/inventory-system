@@ -573,11 +573,7 @@ export default function PrintMonitoring() {
           </p>
         </div>
         {printers.some((p) => p.webcamUrl) ? (
-          <Button
-            variant="outline"
-            className="shrink-0"
-            onClick={() => navigate("/print-cam")}
-          >
+          <Button variant="secondary" size="sm" onClick={() => { window.location.href = "/print-cam"; }}>
             <Video className="mr-2 h-4 w-4" />
             View All Webcams
           </Button>

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { trpc } from "@/client/trpc";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -394,8 +393,8 @@ export default function PrintCam() {
           >
             Refresh All
           </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link to="/print-monitor">← Back</Link>
+          <Button variant="secondary" size="sm" onClick={() => { window.location.href = "/print-monitor"; }}>
+            ← Back
           </Button>
         </div>
       </div>
