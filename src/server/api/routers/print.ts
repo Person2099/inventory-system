@@ -1078,7 +1078,7 @@ export const printRouter = router({
           },
         });
         // Sync MQTT pool so the new printer gets a connection immediately
-        syncBambuMqttPool().catch(() => {});
+        syncBambuMqttPool().catch(() => { /* empty */ });
         return result;
       } catch (error) {
         if (
@@ -1125,7 +1125,7 @@ export const printRouter = router({
         where: { id: input.printerId },
       });
       // Sync MQTT pool so the removed printer's connection is closed
-      syncBambuMqttPool().catch(() => {});
+      syncBambuMqttPool().catch(() => { /* empty */ });
 
       return { deleted: true };
     }),
@@ -1162,7 +1162,7 @@ export const printRouter = router({
           data,
         });
         // Sync MQTT pool so changed IP/auth is picked up immediately
-        syncBambuMqttPool().catch(() => {});
+        syncBambuMqttPool().catch(() => { /* empty */ });
         return result;
       } catch (error) {
         if (
