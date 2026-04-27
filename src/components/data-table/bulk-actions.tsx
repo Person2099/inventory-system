@@ -11,6 +11,7 @@ import type { Table } from "@tanstack/react-table";
 import { useCart, type CartItem } from "@/contexts/cart-context";
 import { toast } from "sonner";
 import { trpc } from "@/client/trpc";
+import { authClient } from "@/auth/client";
 
 interface BulkActionsProps<TData extends Omit<CartItem, "quantity">> {
   table: Table<TData>;
@@ -22,6 +23,8 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
   onRefetch,
 }: BulkActionsProps<TData>) {
   const { addItem, itemInCart, removeItem } = useCart();
+  const { data: session } = authClient.useSession();
+  const isAdmin = session?.user.role === "admin";
 
   const bulkDeleteMut = trpc.item.bulkDelete.useMutation({
     onError: (error) => {
@@ -108,15 +111,19 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
             <ShoppingCart className="h-4 w-4 mr-2" />
             Add to Cart
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={handleBulkDelete}
-            className="text-red-600 hover:!text-red-600 hover:!bg-red-100"
-            disabled={bulkDeleteMut.isPending}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            {bulkDeleteMut.isPending ? "Deleting..." : "Delete Selected"}
-          </DropdownMenuItem>
+          {isAdmin && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleBulkDelete}
+                className="text-red-600 hover:!text-red-600 hover:!bg-red-100"
+                disabled={bulkDeleteMut.isPending}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {bulkDeleteMut.isPending ? "Deleting..." : "Delete Selected"}
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={handleBulkRemoveFromCart}
