@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { trpcServer } from "@hono/trpc-server";
 import { appRouter } from "@/server/api/routers/_app";
@@ -20,7 +20,6 @@ import { initBambuStatusListener } from "@/server/lib/bambu";
 import {
     initPrintCamPoller,
     getCachedSnapshot,
-    getCachedWebcamUrl,
 } from "@/server/lib/printCamPoller";
 
 // Load environment variables
@@ -180,7 +179,7 @@ app.get("/api/webcam/:printerId", async (c) => {
 });
 
 async function proxyWebcam(
-    c: Parameters<Parameters<typeof app.get>[1]>[0],
+    c: Context,
     rawUrl: string,
     label: string,
     mode: string | undefined,
