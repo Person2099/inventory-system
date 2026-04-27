@@ -92,20 +92,12 @@ function WebcamTile({
   const [localTick, setLocalTick] = useState(0);
   const [imgError, setImgError] = useState(false);
   const tick = globalTick + localTick;
+  const lastSrcRef = useRef<string | null>(null);
 
   // Reset error state when tick changes so click-to-refresh retries
   useEffect(() => {
     setImgError(false);
   }, [tick]);
-
-  const handleImgError = useCallback(() => {
-    setImgError(true);
-    onUnavailable?.();
-  }, [onUnavailable]);
-
-  const handleImgLoad = useCallback(() => {
-    onAvailable?.();
-  }, [onAvailable]);
 
   // Null src while paused — browser aborts in-flight request, freeing the
   // connection slot for the tRPC refetch that triggered the pause.
@@ -113,6 +105,18 @@ function WebcamTile({
     !paused && data.webcamUrl
       ? buildCachedSnapshotUrl(data.printerId, tick)
       : null;
+
+  const displaySrc = imgSrc ?? lastSrcRef.current;
+
+  const handleImgError = useCallback(() => {
+    setImgError(true);
+    onUnavailable?.();
+  }, [onUnavailable]);
+
+  const handleImgLoad = useCallback(() => {
+    if (imgSrc) lastSrcRef.current = imgSrc;
+    onAvailable?.();
+  }, [onAvailable, imgSrc]);
 
   const accentColor = statusAccentColor(data.state);
   const isPrinting = data.state.toUpperCase() === "PRINTING";
@@ -140,7 +144,7 @@ function WebcamTile({
       />
 
       {/* Webcam feed */}
-      {!imgSrc || imgError ? (
+      {!displaySrc || imgError ? (
         <div className="h-full w-full flex flex-col items-center justify-center gap-2 bg-zinc-900">
           <VideoOff
             className="text-zinc-500"
@@ -153,13 +157,13 @@ function WebcamTile({
             className="text-zinc-500 font-medium text-center leading-tight px-2"
             style={{ fontSize }}
           >
-            {!imgSrc ? "No webcam configured" : "Webcam unavailable"}
+            {!data.webcamUrl ? "No webcam configured" : "Webcam unavailable"}
           </span>
         </div>
       ) : (
         <img
-          key={`${data.printerId}-${tick}`}
-          src={imgSrc}
+          key={data.printerId}
+          src={displaySrc}
           alt={`${data.printerName} camera`}
           className="h-full w-full object-contain"
           onError={handleImgError}
@@ -331,11 +335,6 @@ export default function PrintCam() {
     return () => observer.disconnect();
   }, []);
 
-  // Clear unavailable set on each tick so tiles retry after every refresh cycle
-  useEffect(() => {
-    setUnavailableIds(new Set());
-  }, [globalTick]);
-
   const markUnavailable = useCallback((id: string) => {
     setUnavailableIds((prev) => new Set([...prev, id]));
   }, []);
@@ -350,9 +349,6 @@ export default function PrintCam() {
 
   const refreshMutation = trpc.print.refreshPrintCamCache.useMutation();
 
-  // staleTime=Infinity so React Query never auto-refetches; we drive the
-  // interval manually below so we can pre-emptively kill webcam connections
-  // before the fetch fires rather than reacting after isFetching=true.
   const dashboardQuery = trpc.print.getPrintCamDashboard.useQuery(undefined, {
     staleTime: Infinity,
   });
@@ -414,6 +410,11 @@ export default function PrintCam() {
 
   const visiblePrinters = useMemo(
     () => webcamPrinters.filter((p) => !unavailableIds.has(p.printerId)),
+    [webcamPrinters, unavailableIds],
+  );
+
+  const unavailablePrinters = useMemo(
+    () => webcamPrinters.filter((p) => unavailableIds.has(p.printerId)),
     [webcamPrinters, unavailableIds],
   );
 
@@ -518,6 +519,21 @@ export default function PrintCam() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Hidden probes: unavailable cameras retry each tick without entering the
+          grid, so that the layout stays stable until one actually comes back online. */}
+      <div style={{ display: "none" }} aria-hidden>
+        {!webcamPaused &&
+          unavailablePrinters.map((printer) =>
+            printer.webcamUrl ? (
+              <img
+                key={printer.printerId}
+                src={buildCachedSnapshotUrl(printer.printerId, globalTick)}
+                onLoad={() => markAvailable(printer.printerId)}
+              />
+            ) : null,
+          )}
       </div>
 
       {unavailableIds.size > 0 && (
