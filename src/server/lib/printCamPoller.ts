@@ -454,7 +454,7 @@ async function pollAttribution(): Promise<void> {
 
 // ─── Snapshot polling ─────────────────────────────────────────────────────────
 
-const SNAPSHOT_TIMEOUT_MS = 15_000;
+const SNAPSHOT_TIMEOUT_MS = 8_000;
 
 // Extract the first JPEG frame from an MJPEG multipart stream.
 // Scans up to MAX_SCAN bytes for FF D8 FF (SOI) … FF D9 (EOI) markers.
@@ -498,20 +498,25 @@ async function pollSnapshot(printer: {
   if (url.includes("action=stream")) {
     url = url.replace("action=stream", "action=snapshot");
   }
+  url += (url.includes("?") ? "&" : "?") + `_t=${Date.now()}`;
+
+  // Single AbortController covers the entire operation — headers AND body reads.
+  // fetchWithTimeout clears its timer after headers arrive, leaving MJPEG body
+  // reads and arrayBuffer() uncovered. A hanging body read would keep
+  // snapshotPollRunning=true indefinitely, silently blocking all future polls.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), SNAPSHOT_TIMEOUT_MS);
 
   try {
-    const res = await fetchWithTimeout(
-      url,
-      { headers: { Accept: "*/*" } },
-      SNAPSHOT_TIMEOUT_MS,
-    );
+    const res = await fetch(url, {
+      signal: ac.signal,
+      headers: { Accept: "*/*", "Cache-Control": "no-cache" },
+    });
     if (!res.ok || !res.body) return;
 
     const contentType = res.headers.get("content-type") ?? "";
 
     if (contentType.includes("multipart")) {
-      // Pull one JPEG frame out of the MJPEG stream so the client gets a
-      // real snapshot rather than a permanently-missing entry.
       const frame = await extractMjpegFrame(res.body);
       snapshotCache.set(
         printer.id,
@@ -522,7 +527,6 @@ async function pollSnapshot(printer: {
       return;
     }
 
-    // fetchWithTimeout's AbortController covers body reads too — safe to await
     const data = Buffer.from(await res.arrayBuffer());
     snapshotCache.set(printer.id, {
       data,
@@ -531,6 +535,8 @@ async function pollSnapshot(printer: {
     });
   } catch {
     // Leave existing cache entry intact on transient failure
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -578,7 +584,7 @@ export function initPrintCamPoller(): void {
   void pollAllSnapshots();
 
   setInterval(() => void pollAllStatuses(), 10_000);
-  setInterval(() => void pollAllSnapshots(), 15_000);
+  setInterval(() => void pollAllSnapshots(), 5_000);
   // Attribution runs less frequently; isolated so DB hangs can't block status
   setInterval(() => void pollAttribution(), 30_000);
 }

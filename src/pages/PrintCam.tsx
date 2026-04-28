@@ -314,7 +314,7 @@ export default function PrintCam() {
   const { setOpen } = useSidebar();
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  const [globalTick, setGlobalTick] = useState(0);
+  const [globalTick, setGlobalTick] = useState(() => Date.now());
   const [webcamPaused, setWebcamPaused] = useState(false);
   const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
 
@@ -359,27 +359,32 @@ export default function PrintCam() {
   refetchRef.current = dashboardQuery.refetch;
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      // 1. Kill all webcam img requests so browser frees connection slots.
+    // Status refetch every 10 s — pauses webcams briefly to free connection
+    // slots for the tRPC request, then resumes.
+    const statusInterval = setInterval(async () => {
       setWebcamPaused(true);
-      // 2. Wait one task to let the browser process the DOM change and cancel
-      //    in-flight requests before we open a new HTTP connection for tRPC.
       await new Promise<void>((r) => setTimeout(r, 300));
-      // 3. Fetch with an empty connection pool — guaranteed slot.
-      // Race against a 10 s safety net so webcams never stay paused forever
-      // if the server is unexpectedly slow.
       try {
         await Promise.race([
           refetchRef.current(),
           new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
         ]);
       } finally {
-        // 4. Resume webcams and bump tick so all tiles reload snapshots.
         setWebcamPaused(false);
         setGlobalTick((n) => n + 1);
       }
     }, 10_000);
-    return () => clearInterval(interval);
+
+    // Snapshot tick every 5 s — just bumps the URL so tiles reload the latest
+    // server-side cached snapshot without pausing or refetching status.
+    const snapshotInterval = setInterval(() => {
+      setGlobalTick((n) => n + 1);
+    }, 5_000);
+
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(snapshotInterval);
+    };
   }, []);
 
   const handleRefreshAll = useCallback(async () => {

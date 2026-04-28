@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/client/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -204,7 +204,13 @@ function PrinterDetail({
   });
 
   const [cameraMode, setCameraMode] = useState<CameraMode>("snapshot");
-  const [snapshotTick, setSnapshotTick] = useState(0);
+  const [snapshotTick, setSnapshotTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (cameraMode !== "snapshot") return;
+    const id = setInterval(() => setSnapshotTick(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, [cameraMode]);
 
   const cameraUrl = useMemo(() => {
     if (!status.webcamUrl) return null;
