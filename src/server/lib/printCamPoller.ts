@@ -348,9 +348,11 @@ function fetchBambuStatus(printer: {
       break;
     case "FAILED":
       state = "IDLE";
-      stateMessage = consumeUserCancelled(printer.serialNumber)
-        ? "Cancelled"
-        : "Last print failed";
+      stateMessage =
+        consumeUserCancelled(printer.serialNumber) ||
+        statusCache.get(printer.id)?.stateMessage === "Cancelled"
+          ? "Cancelled"
+          : "Last print failed";
       break;
     case "PREPARE":
       state = "BUSY";

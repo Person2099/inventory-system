@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Upload, X, File as FileIcon } from "lucide-react";
+import { Upload, X, File as FileIcon, Loader2 } from "lucide-react";
 
 const readFileAsBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -465,26 +465,39 @@ export default function PrintGcode() {
                   )}
                 </div>
               )}
-            <Button
-              type="submit"
-              disabled={
-                uploadAndPrintMutation.isPending ||
-                printersQuery.isLoading ||
-                printerOptions.length === 0 ||
-                !selectedFile ||
-                !selectedPrinterIp ||
-                (!!selectedPrinterIp && statusQuery.isLoading) ||
-                printerBusy
-              }
-            >
-              {uploadAndPrintMutation.isPending
-                ? "Printing..."
-                : statusQuery.isLoading && selectedPrinterIp
-                  ? "Checking printer\u2026"
-                  : printerBusy
-                    ? "Printer busy"
-                    : "Upload and Print"}
-            </Button>
+            <div className="space-y-2">
+              <Button
+                type="submit"
+                disabled={
+                  uploadAndPrintMutation.isPending ||
+                  printersQuery.isLoading ||
+                  printerOptions.length === 0 ||
+                  !selectedFile ||
+                  !selectedPrinterIp ||
+                  (!!selectedPrinterIp && statusQuery.isLoading) ||
+                  printerBusy
+                }
+              >
+                {uploadAndPrintMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending to printer...
+                  </>
+                ) : statusQuery.isLoading && selectedPrinterIp ? (
+                  "Checking printer..."
+                ) : printerBusy ? (
+                  "Printer busy"
+                ) : (
+                  "Upload and Print"
+                )}
+              </Button>
+              {uploadAndPrintMutation.isPending && (
+                <p className="text-xs text-muted-foreground">
+                  Uploading file and starting print - this can take up to 60
+                  seconds.
+                </p>
+              )}
+            </div>
           </form>
 
           {jobsQuery.data && jobsQuery.data.length > 0 ? (
@@ -505,28 +518,41 @@ export default function PrintGcode() {
                         {job.status}
                       </div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        !selectedPrinterIp ||
-                        printerBusy ||
-                        (!!selectedPrinterIp && statusQuery.isLoading) ||
-                        reprintMutation.isPending
-                      }
-                      onClick={() =>
-                        reprintMutation.mutate({
-                          printJobId: job.id,
-                          printerIpAddress: selectedPrinterIp,
-                        })
-                      }
-                    >
+                    <div className="flex flex-col items-end gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          !selectedPrinterIp ||
+                          printerBusy ||
+                          (!!selectedPrinterIp && statusQuery.isLoading) ||
+                          reprintMutation.isPending
+                        }
+                        onClick={() =>
+                          reprintMutation.mutate({
+                            printJobId: job.id,
+                            printerIpAddress: selectedPrinterIp,
+                          })
+                        }
+                      >
+                        {reprintMutation.isPending &&
+                        reprintMutation.variables?.printJobId === job.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Reprinting...
+                          </>
+                        ) : (
+                          "Reprint"
+                        )}
+                      </Button>
                       {reprintMutation.isPending &&
-                      reprintMutation.variables?.printJobId === job.id
-                        ? "Reprinting\u2026"
-                        : "Reprint"}
-                    </Button>
+                        reprintMutation.variables?.printJobId === job.id && (
+                          <p className="text-xs text-muted-foreground">
+                            This can take up to 60 seconds.
+                          </p>
+                        )}
+                    </div>
                   </div>
                 ))}
               </div>
