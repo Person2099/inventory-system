@@ -97,7 +97,7 @@ function PrinterCard({
               </span>
             </div>
             <p
-              className="text-[11px] text-muted-foreground truncate"
+              className={`text-[11px] truncate ${["ATTENTION", "UNREACHABLE", "ERROR"].includes(status.state.toUpperCase()) ? "text-destructive font-medium" : "text-muted-foreground"}`}
               title={status.stateMessage}
             >
               {status.stateMessage}

@@ -16,14 +16,17 @@ import { Route, Routes, useParams } from "react-router-dom";
 import LocationBreadcrumb from "@/components/Location";
 import ModifyItemSheet from "@/components/item-crud/ModifyItemSheet";
 import { keepPreviousData } from "@tanstack/react-query";
+import { authClient } from "@/auth/client";
 
 type GetItemsOutput = inferProcedureOutput<
   AppRouter["item"]["list"]
 >["items"][number];
 
 const Consumables = () => {
-  const { itemInCart } = useCart();
+  const { itemInCart, getItem } = useCart();
   const { "*": locationPath } = useParams();
+  const { data: session } = authClient.useSession();
+  const isAdmin = session?.user.role === "admin";
   const locationId = locationPath?.split("/").pop();
 
   // Manage pagination state
@@ -94,6 +97,11 @@ const Consumables = () => {
     [deleteMut],
   );
 
+  const getCartQuantity = useCallback(
+    (id: string) => getItem(id)?.quantity ?? 0,
+    [getItem],
+  );
+
   // Memoize columns to prevent re-creation on every render
   const columns = useMemo(
     () =>
@@ -103,15 +111,19 @@ const Consumables = () => {
         onModify: handleModify,
         onDelete: handleDelete,
         itemInCart,
+        getCartQuantity,
         isDeleting: deleteMut.isPending,
         callback: onRestock,
+        isAdmin,
       }),
     [
       handleAddToCart,
       handleModify,
       handleDelete,
       itemInCart,
+      getCartQuantity,
       deleteMut.isPending,
+      isAdmin,
     ],
   );
 
@@ -160,7 +172,12 @@ const Consumables = () => {
         filterValue={filter}
         onFilterChange={setFilter}
         BarComponents={(table) => (
-          <TableActions table={table} onRefetch={refetch} defaultConsumable />
+          <TableActions
+            table={table}
+            onRefetch={refetch}
+            defaultConsumable
+            isAdmin={isAdmin}
+          />
         )}
         pageIndex={pageIndex}
         pageSize={pageSize}

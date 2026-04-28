@@ -7,17 +7,19 @@ interface TableActionsProps<TData extends Omit<CartItem, "quantity">> {
   table: Table<TData>;
   onRefetch?: () => void;
   defaultConsumable?: boolean;
+  isAdmin?: boolean;
 }
 
 export function TableActions<TData extends Omit<CartItem, "quantity">>({
   table,
   onRefetch,
   defaultConsumable,
+  isAdmin,
 }: TableActionsProps<TData>) {
   return (
     <div className="flex items-center gap-2">
       <BulkActions table={table} onRefetch={onRefetch} />
-      <AddDialog defaultConsumable={defaultConsumable} />
+      {isAdmin && <AddDialog defaultConsumable={defaultConsumable} />}
     </div>
   );
 }

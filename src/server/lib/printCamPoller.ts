@@ -70,6 +70,31 @@ function fetchWithTimeout(
   );
 }
 
+// ─── State message helpers ───────────────────────────────────────────────────
+
+function prusaStateMessage(state: string, progressText = ""): string {
+  switch (state.toUpperCase()) {
+    case "PRINTING":
+      return `Printing in progress${progressText}`;
+    case "IDLE":
+    case "READY":
+    case "FINISHED":
+      return "Ready";
+    case "PAUSED":
+      return "Paused";
+    case "ATTENTION":
+      return "Printer needs attention — check display";
+    case "ERROR":
+      return "Printer error — check display";
+    case "STOPPED":
+      return "Print stopped";
+    case "BUSY":
+      return "Printer is busy";
+    default:
+      return state;
+  }
+}
+
 // ─── Status polling ──────────────────────────────────────────────────────────
 
 const PRUSA_TIMEOUT_MS = 8_000;
@@ -196,12 +221,7 @@ async function fetchPrusaStatus(printer: {
       ipAddress: printer.ipAddress,
       webcamUrl: printer.webcamUrl,
       state,
-      stateMessage:
-        state === "PRINTING"
-          ? `Printing in progress${progressText}`
-          : state === "IDLE" || state === "READY" || state === "FINISHED"
-            ? "Ready"
-            : state,
+      stateMessage: prusaStateMessage(state, progressText),
       nozzleTemp: status.printer?.temp_nozzle ?? null,
       targetNozzleTemp: status.printer?.target_nozzle ?? null,
       bedTemp: status.printer?.temp_bed ?? null,

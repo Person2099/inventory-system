@@ -33,8 +33,10 @@ interface ItemProps {
   onModify: (item: GetItemsOutput) => void;
   onDelete: (item: GetItemsOutput) => void;
   itemInCart: (id: string) => boolean;
+  getCartQuantity: (id: string) => number;
   isDeleting?: boolean;
   callback?: () => void;
+  isAdmin?: boolean;
 }
 
 function Items({
@@ -43,8 +45,10 @@ function Items({
   onModify,
   onDelete,
   itemInCart,
+  getCartQuantity,
   isDeleting,
   callback,
+  isAdmin,
 }: ItemProps) {
   const columns: ColumnDef<GetItemsOutput>[] = [
     {
@@ -233,39 +237,76 @@ function Items({
       cell: ({ row }) => {
         const item = row.original;
         const inCart = itemInCart(item.id);
+        const cartQty = getCartQuantity(item.id);
+
+        let cartDisabled = false;
+        let cartLabel = "Add to Cart";
+
+        if (consumable) {
+          const available = item.consumable?.available ?? 0;
+          if (available === 0) {
+            cartDisabled = true;
+            cartLabel = "Out of Stock";
+          } else if (inCart && cartQty >= available) {
+            cartDisabled = true;
+            cartLabel = "All in Cart";
+          }
+        } else {
+          const isLabUse = item.stored === false;
+          const latest = item.ItemRecords?.slice().sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )[0];
+          const isOnLoan = latest?.loaned ?? false;
+
+          if (isLabUse) {
+            cartDisabled = true;
+            cartLabel = "In Use";
+          } else if (isOnLoan) {
+            cartDisabled = true;
+            cartLabel = "Loaned";
+          } else if (inCart) {
+            cartDisabled = true;
+            cartLabel = "In Cart";
+          }
+        }
 
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2 min-w-[200px]">
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
               onClick={() => onAddToCart(item)}
-              title={inCart ? "Remove from cart" : "Add to cart"}
+              disabled={cartDisabled}
+              title={cartLabel}
             >
-              <ShoppingCart
-                className={`h-4 w-4 ${inCart ? "fill-current" : ""}`}
-              />
+              <ShoppingCart className="h-3.5 w-3.5" />
+              {cartLabel}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => onModify(item)}
-              title="Modify item"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => onDelete(item)}
-              disabled={isDeleting}
-              title="Delete item"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {isAdmin && (
+              <div className="flex items-center gap-1 ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => onModify(item)}
+                  title="Modify item"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => onDelete(item)}
+                  disabled={isDeleting}
+                  title="Delete item"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         );
       },
