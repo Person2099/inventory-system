@@ -1902,7 +1902,8 @@ export const printRouter = router({
 
     const jobByPrinter = new Map<string, (typeof recentJobs)[number]>();
     for (const job of recentJobs) {
-      if (!jobByPrinter.has(job.printerId)) jobByPrinter.set(job.printerId, job);
+      if (!jobByPrinter.has(job.printerId))
+        jobByPrinter.set(job.printerId, job);
     }
 
     const results = await Promise.allSettled(
@@ -1921,62 +1922,131 @@ export const printRouter = router({
 
         if (printer.type === "BAMBU") {
           if (printer.authToken && printer.serialNumber) {
-            const s = getBambuStatus(printer.ipAddress, printer.authToken, printer.serialNumber);
+            const s = getBambuStatus(
+              printer.ipAddress,
+              printer.authToken,
+              printer.serialNumber,
+            );
             if (!s) {
               state = "CONNECTING";
               stateMessage = "Connecting to Bambu printer…";
             } else {
               const gcodeState = s.gcodeState.toUpperCase();
-              const pct = s.progress != null ? ` (${Math.round(s.progress)}%)` : "";
+              const pct =
+                s.progress != null ? ` (${Math.round(s.progress)}%)` : "";
               switch (gcodeState) {
-                case "RUNNING": state = "PRINTING"; stateMessage = `Printing in progress${pct}`; break;
-                case "PAUSE":   state = "PAUSED";   stateMessage = "Paused"; break;
-                case "FINISH":  state = "FINISHED"; stateMessage = "Finished"; break;
-                case "FAILED":  state = "IDLE";     stateMessage = consumeUserCancelled(printer.serialNumber) ? "Cancelled" : "Last print failed"; break;
-                case "PREPARE": state = "BUSY";     stateMessage = "Preparing"; break;
-                case "IDLE":    state = "IDLE";     stateMessage = "Ready"; break;
-                default:        state = gcodeState; stateMessage = gcodeState; break;
+                case "RUNNING":
+                  state = "PRINTING";
+                  stateMessage = `Printing in progress${pct}`;
+                  break;
+                case "PAUSE":
+                  state = "PAUSED";
+                  stateMessage = "Paused";
+                  break;
+                case "FINISH":
+                  state = "FINISHED";
+                  stateMessage = "Finished";
+                  break;
+                case "FAILED":
+                  state = "IDLE";
+                  stateMessage = consumeUserCancelled(printer.serialNumber)
+                    ? "Cancelled"
+                    : "Last print failed";
+                  break;
+                case "PREPARE":
+                  state = "BUSY";
+                  stateMessage = "Preparing";
+                  break;
+                case "IDLE":
+                  state = "IDLE";
+                  stateMessage = "Ready";
+                  break;
+                default:
+                  state = gcodeState;
+                  stateMessage = gcodeState;
+                  break;
               }
-              nozzleTemp = s.nozzleTemp; targetNozzleTemp = s.targetNozzleTemp;
-              bedTemp = s.bedTemp; targetBedTemp = s.targetBedTemp;
-              chamberTemp = s.chamberTemp; progress = s.progress;
-              timeRemaining = s.remainingTimeMinutes != null ? s.remainingTimeMinutes * 60 : null;
-              fileName = s.fileName; filamentType = s.filamentType ?? null;
+              nozzleTemp = s.nozzleTemp;
+              targetNozzleTemp = s.targetNozzleTemp;
+              bedTemp = s.bedTemp;
+              targetBedTemp = s.targetBedTemp;
+              chamberTemp = s.chamberTemp;
+              progress = s.progress;
+              timeRemaining =
+                s.remainingTimeMinutes != null
+                  ? s.remainingTimeMinutes * 60
+                  : null;
+              fileName = s.fileName;
+              filamentType = s.filamentType ?? null;
             }
           } else {
-            stateMessage = "Bambu printer requires an access code and serial number.";
+            stateMessage =
+              "Bambu printer requires an access code and serial number.";
           }
         } else if (printer.authToken) {
           interface PrusaStatusResponse {
-            printer?: { state?: string; temp_nozzle?: number; target_nozzle?: number; temp_bed?: number; target_bed?: number };
-            job?: { progress?: number; time_remaining?: number; time_printing?: number };
+            printer?: {
+              state?: string;
+              temp_nozzle?: number;
+              target_nozzle?: number;
+              temp_bed?: number;
+              target_bed?: number;
+            };
+            job?: {
+              progress?: number;
+              time_remaining?: number;
+              time_printing?: number;
+            };
           }
           interface PrusaJobResponse {
-            file?: { name?: string; display_name?: string; meta?: { filament_type?: string; material?: string } };
-            progress?: number; time_remaining?: number;
+            file?: {
+              name?: string;
+              display_name?: string;
+              meta?: { filament_type?: string; material?: string };
+            };
+            progress?: number;
+            time_remaining?: number;
           }
           try {
             const [statusRes, jobRes] = await Promise.all([
-              fetch(`http://${printer.ipAddress}/api/v1/status`, { headers: { "X-Api-Key": printer.authToken }, signal: AbortSignal.timeout(5000) }),
-              fetch(`http://${printer.ipAddress}/api/v1/job`,    { headers: { "X-Api-Key": printer.authToken }, signal: AbortSignal.timeout(5000) }),
+              fetch(`http://${printer.ipAddress}/api/v1/status`, {
+                headers: { "X-Api-Key": printer.authToken },
+                signal: AbortSignal.timeout(5000),
+              }),
+              fetch(`http://${printer.ipAddress}/api/v1/job`, {
+                headers: { "X-Api-Key": printer.authToken },
+                signal: AbortSignal.timeout(5000),
+              }),
             ]);
             if (!statusRes.ok) {
-              state = "UNREACHABLE"; stateMessage = `Status check failed (HTTP ${statusRes.status}).`;
+              state = "UNREACHABLE";
+              stateMessage = `Status check failed (HTTP ${statusRes.status}).`;
             } else {
               const s = (await statusRes.json()) as PrusaStatusResponse;
-              const j = jobRes.status === 204 ? null : ((await jobRes.json()) as PrusaJobResponse);
+              const j =
+                jobRes.status === 204
+                  ? null
+                  : ((await jobRes.json()) as PrusaJobResponse);
               state = s.printer?.state?.trim() ?? "UNKNOWN";
-              const pct = (s.job?.progress ?? j?.progress) != null ? ` (${Math.round((s.job?.progress ?? j?.progress)!)}%)` : "";
+              const pct =
+                (s.job?.progress ?? j?.progress) != null
+                  ? ` (${Math.round((s.job?.progress ?? j?.progress)!)}%)`
+                  : "";
               stateMessage = prusaStateMessage(state, pct);
-              nozzleTemp = s.printer?.temp_nozzle ?? null; targetNozzleTemp = s.printer?.target_nozzle ?? null;
-              bedTemp = s.printer?.temp_bed ?? null; targetBedTemp = s.printer?.target_bed ?? null;
+              nozzleTemp = s.printer?.temp_nozzle ?? null;
+              targetNozzleTemp = s.printer?.target_nozzle ?? null;
+              bedTemp = s.printer?.temp_bed ?? null;
+              targetBedTemp = s.printer?.target_bed ?? null;
               progress = s.job?.progress ?? j?.progress ?? null;
-              timeRemaining = s.job?.time_remaining ?? j?.time_remaining ?? null;
+              timeRemaining =
+                s.job?.time_remaining ?? j?.time_remaining ?? null;
               fileName = j?.file?.display_name ?? j?.file?.name ?? null;
-              filamentType = j?.file?.meta?.filament_type ?? j?.file?.meta?.material ?? null;
+              filamentType =
+                j?.file?.meta?.filament_type ?? j?.file?.meta?.material ?? null;
             }
           } catch {
-            state = "UNREACHABLE"; stateMessage = "Could not reach printer.";
+            state = "UNREACHABLE";
+            stateMessage = "Could not reach printer.";
           }
         } else {
           stateMessage = "No auth token configured.";
@@ -2000,7 +2070,9 @@ export const printRouter = router({
           timeRemaining,
           filamentType,
           fileName,
-          startedBy: job ? { name: job.user.name, email: job.user.email } : null,
+          startedBy: job
+            ? { name: job.user.name, email: job.user.email }
+            : null,
           jobStartedAt: job?.createdAt ?? null,
           updatedAt: Date.now(),
         };
