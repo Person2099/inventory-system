@@ -162,6 +162,7 @@ export const itemRecordRouter = router({
                   },
                 },
                 actionBy: true,
+                performedBy: true,
               },
             });
 
