@@ -18,6 +18,16 @@ import ModifyItemSheet from "@/components/item-crud/ModifyItemSheet";
 import { keepPreviousData } from "@tanstack/react-query";
 import { authClient } from "@/auth/client";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { MapPin } from "lucide-react";
 
 type GetItemsOutput = inferProcedureOutput<
@@ -32,6 +42,7 @@ const Assets = () => {
   const { data: session } = authClient.useSession();
   const isAdmin = session?.user.role === "admin";
   const [locationsDialogOpen, setLocationsDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<GetItemsOutput | null>(null);
 
   // Manage pagination state
   const [pageIndex, setPageIndex] = useState(0);
@@ -116,12 +127,9 @@ const Assets = () => {
   }, []);
 
   // Handle delete action
-  const handleDelete = useCallback(
-    (item: GetItemsOutput) => {
-      deleteMut.mutate({ id: item.id });
-    },
-    [deleteMut],
-  );
+  const handleDelete = useCallback((item: GetItemsOutput) => {
+    setItemToDelete(item);
+  }, []);
 
   // Memoize columns to prevent re-creation on every render
   const getCartQuantity = useCallback(
@@ -243,6 +251,37 @@ const Assets = () => {
         open={locationsDialogOpen}
         onOpenChange={setLocationsDialogOpen}
       />
+
+      <AlertDialog
+        open={!!itemToDelete}
+        onOpenChange={(open) => {
+          if (!open) setItemToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{itemToDelete?.name}</strong>
+              . This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (itemToDelete) {
+                  deleteMut.mutate({ id: itemToDelete.id });
+                  setItemToDelete(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

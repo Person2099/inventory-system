@@ -15,6 +15,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -52,6 +62,7 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
   const isAdmin = session?.user.role === "admin";
 
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [printLabelType, setPrintLabelType] = useState<LabelType>(0);
   const [printQuantity, setPrintQuantity] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
@@ -121,6 +132,7 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
     if (itemIds.length > 0) {
       bulkDeleteMut.mutate({ ids: itemIds });
     }
+    setDeleteConfirmOpen(false);
   };
 
   const handleBulkPrint = async () => {
@@ -190,7 +202,7 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={handleBulkDelete}
+                  onClick={() => setDeleteConfirmOpen(true)}
                   className="text-red-600 hover:!text-red-600 hover:!bg-red-100"
                   disabled={bulkDeleteMut.isPending}
                 >
@@ -270,6 +282,29 @@ export function BulkActions<TData extends Omit<CartItem, "quantity">>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedCount} item{selectedCount > 1 ? "s" : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedCount} selected item
+              {selectedCount > 1 ? "s" : ""}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleBulkDelete}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
