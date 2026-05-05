@@ -30,7 +30,7 @@ export function AddConsumableDialog({
   const { addItem, getItem } = useCart();
   const currentQuantity = getItem(item?.id ?? "")?.quantity ?? 0;
   const availableToAdd = Math.max(
-    getCartItemMaxQuantity(item!) - currentQuantity,
+    getCartItemMaxQuantity(item) - currentQuantity,
     0,
   );
   const [itemQty, setItemQty] = useState(1);
