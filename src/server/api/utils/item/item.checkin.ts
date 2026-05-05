@@ -97,7 +97,7 @@ const createItemRecords = async (
     actionByUserId: ctx,
     itemId: item.uuid,
     quantity: item.checkedQuantity,
-    ...(performedByUserId ? { performedByUserId } : {}),
+    performedByUserId: performedByUserId ?? null,
   }));
 
   await tx.itemRecord.createMany({
