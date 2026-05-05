@@ -9,6 +9,16 @@ import { trpc } from "@/client/trpc";
 import type { inferProcedureOutput } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 import { Dialog, DialogContent, DialogOverlay } from "@radix-ui/react-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AddConsumableDialog } from "@/components/add-consumable-dialog";
 import { TableActions } from "@/components/data-table/table-actions";
 import ErrorPage from "./Error";
@@ -36,6 +46,7 @@ const Consumables = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<GetItemsOutput | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<GetItemsOutput | null>(null);
 
   // Fetch paginated data
   const { data, isLoading, error, refetch } = trpc.item.list.useQuery(
@@ -90,12 +101,9 @@ const Consumables = () => {
   }, []);
 
   // Handle delete action
-  const handleDelete = useCallback(
-    (item: GetItemsOutput) => {
-      deleteMut.mutate({ id: item.id });
-    },
-    [deleteMut],
-  );
+  const handleDelete = useCallback((item: GetItemsOutput) => {
+    setItemToDelete(item);
+  }, []);
 
   const getCartQuantity = useCallback(
     (id: string) => getItem(id)?.quantity ?? 0,
@@ -206,6 +214,34 @@ const Consumables = () => {
           onSuccess={refetch}
         />
       )}
+
+      <AlertDialog
+        open={!!itemToDelete}
+        onOpenChange={(open) => { if (!open) setItemToDelete(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{itemToDelete?.name}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (itemToDelete) {
+                  deleteMut.mutate({ id: itemToDelete.id });
+                  setItemToDelete(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
