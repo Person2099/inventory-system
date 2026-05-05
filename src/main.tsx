@@ -42,9 +42,7 @@ const trpcClient = trpc.createClient({
       headers: () => {
         const headers: Record<string, string> = { "x-trpc-source": "react" };
         if (window.location.pathname.startsWith("/kiosk")) {
-          const kioskSecret = import.meta.env.VITE_KIOSK_SECRET as
-            | string
-            | undefined;
+          const kioskSecret = import.meta.env.VITE_KIOSK_SECRET;
           if (kioskSecret) headers["x-kiosk-token"] = kioskSecret;
         }
         return headers;
