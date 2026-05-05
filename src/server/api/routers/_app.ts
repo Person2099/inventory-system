@@ -1,4 +1,4 @@
-import { adminProcedure, userProcedure, router } from "@/server/trpc";
+import { userProcedure, router } from "@/server/trpc";
 import { groupRouter } from "./group";
 import { consumableRouter } from "./consumable";
 import { itemRouter } from "./item";

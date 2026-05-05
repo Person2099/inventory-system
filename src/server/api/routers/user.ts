@@ -1,4 +1,4 @@
-import { router, userProcedure, adminProcedure } from "@/server/trpc";
+import { router, adminProcedure } from "@/server/trpc";
 import { prisma } from "@/server/lib/prisma";
 import { z } from "zod";
 import { userInput, userUpdateInput } from "@/server/schema/user.schema";
