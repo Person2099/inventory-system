@@ -1,4 +1,4 @@
-import { router, userProcedure, adminProcedure } from "@/server/trpc";
+import { router, adminProcedure } from "@/server/trpc";
 import { prisma } from "@/server/lib/prisma";
 import { z } from "zod";
 import { userInput, userUpdateInput } from "@/server/schema/user.schema";
@@ -10,7 +10,7 @@ export const userRouter = router({
     });
   }),
 
-  get: userProcedure
+  get: adminProcedure
     .meta({
       mcp: {
         name: "user_get",
@@ -47,7 +47,7 @@ export const userRouter = router({
       });
     }),
 
-  list: userProcedure
+  list: adminProcedure
     .meta({
       mcp: {
         name: "user_list",

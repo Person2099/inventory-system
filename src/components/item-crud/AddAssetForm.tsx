@@ -41,7 +41,7 @@ export function AddAssetForm({
   });
 
   function onAssetSumbit(values: z.infer<typeof createItemInput>) {
-    createItem(values, quantity);
+    void createItem(values, quantity);
   }
 
   const handleLocationSelect = useCallback(

@@ -344,6 +344,7 @@ export class DatabaseMockFactory {
       actionByUserId,
       itemId,
       notes: faker.helpers.maybe(() => faker.lorem.sentence()) ?? null,
+      performedByUserId: null,
       quantity: faker.number.int({ min: 1, max: 10 }),
       createdAt: faker.date.recent({ days: 30 }),
       ...overrides,
