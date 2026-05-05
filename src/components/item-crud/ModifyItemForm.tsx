@@ -29,7 +29,9 @@ import { Badge } from "../ui/badge";
 import { authClient } from "@/auth/client";
 import { Separator } from "../ui/separator";
 
-type GetItemOutput = inferProcedureOutput<AppRouter["item"]["get"]>;
+type GetItemOutput = inferProcedureOutput<
+  AppRouter["item"]["list"]
+>["items"][number];
 interface GetTagOutput {
   id: string;
   name: string;
@@ -71,6 +73,7 @@ export default function ModifyItemForm({
     onSuccess: () => {
       void utils.item.get.invalidate({ id: item?.id ?? "" });
       void utils.item.list.invalidate();
+      void utils.item.listForAssets.invalidate();
       toast.success("Item successfully modified!");
       onSuccess?.();
       onOpenChange(false);
