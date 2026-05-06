@@ -349,18 +349,20 @@ describe("kiosk router", () => {
         { itemId: loanedItem.id },
       ] as never);
       // Step 2: latest record for each candidate
-      prismaMock.itemRecord.findFirst.mockResolvedValueOnce({
-        id: recordId,
-        itemId: loanedItem.id,
-        loaned: true,
-        createdAt: new Date(),
-        actionByUserId: dbUser.id,
-        item: {
-          id: loanedItem.id,
-          name: loanedItem.name,
-          serial: loanedItem.serial,
+      prismaMock.itemRecord.findMany.mockResolvedValueOnce([
+        {
+          id: recordId,
+          itemId: loanedItem.id,
+          loaned: true,
+          createdAt: new Date(),
+          actionByUserId: dbUser.id,
+          item: {
+            id: loanedItem.id,
+            name: loanedItem.name,
+            serial: loanedItem.serial,
+          },
         },
-      } as never);
+      ] as never);
 
       const result = await caller.getUserLoanedItems({
         studentId: studentInfo.studentId,

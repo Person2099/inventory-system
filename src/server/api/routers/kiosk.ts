@@ -53,7 +53,16 @@ export const kioskRouter = router({
       const { studentInfo, user } = await resolveUser(input.studentId);
 
       if (!user) {
-        return { found: false as const, user: null };
+        return {
+          found: false as const,
+          user: null,
+          studentInfo: {
+            studentId: studentInfo.studentId,
+            name: studentInfo.name,
+            email: studentInfo.email,
+            discordId: studentInfo.discordId,
+          },
+        };
       }
 
       return {

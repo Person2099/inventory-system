@@ -17,7 +17,7 @@
         "lint": "eslint src --ext .ts,.tsx --fix",
         "gitlint": "FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\\.(ts|tsx)$'); if [ -n \"$FILES\" ]; then eslint $FILES --fix; else echo 'No TypeScript files to lint'; fi",
         "preview": "vite preview",
-        "dev:backend": "bun --hot server/index.ts",
+        "dev:backend": "NODE_ENV=development bun --hot server/index.ts",
         "backend": "bun server/index.ts",
         "test": "vitest run",
         "test:watch": "vitest --watch",
