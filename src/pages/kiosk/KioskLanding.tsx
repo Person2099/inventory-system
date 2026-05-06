@@ -15,9 +15,7 @@ export default function KioskLanding() {
   const lookup = trpc.kiosk.lookupStudent.useMutation({
     onSuccess: (data) => {
       if (!data.found) {
-        toast.error(
-          `No account found for ${data.studentInfo.name}. Please register first.`,
-        );
+        toast.error("Student ID not registered. Please register first.");
         return;
       }
       setSession({

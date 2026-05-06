@@ -63,11 +63,18 @@ export const router = t.router;
 export const publicProcedure = t.procedure;
 
 // Kiosk procedure: validates x-kiosk-token against KIOSK_SECRET env var.
-// If KIOSK_SECRET is unset, all requests are allowed (dev convenience).
-// For production, set KIOSK_SECRET and enforce IP allowlisting at the infra layer.
+// In development/test the check is skipped for convenience.
+// In production, KIOSK_SECRET must be set — missing secret fails closed.
 export const kioskProcedure = t.procedure.use(({ ctx, next }) => {
   const secret = process.env.KIOSK_SECRET;
-  if (secret) {
+  const isDev =
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test";
+  if (!secret) {
+    if (!isDev) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+  } else {
     const token = ctx.req.headers.get("x-kiosk-token");
     if (token !== secret) {
       throw new TRPCError({ code: "UNAUTHORIZED" });

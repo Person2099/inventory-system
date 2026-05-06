@@ -22,7 +22,7 @@ interface ScannedItem {
 }
 
 export default function KioskCheckout() {
-  const { session } = useKiosk();
+  const { session, resetTimeout } = useKiosk();
   const navigate = useNavigate();
   const [items, setItems] = useState<ScannedItem[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -37,6 +37,8 @@ export default function KioskCheckout() {
     return () => stopCamera();
   }, [session, navigate]);
 
+  const utils = trpc.useUtils();
+
   const getItem = trpc.kiosk.getItemByQR.useMutation({
     onError: (err) => toast.error(err.message),
   });
@@ -44,6 +46,7 @@ export default function KioskCheckout() {
   const checkout = trpc.kiosk.checkoutItems.useMutation({
     onSuccess: (data) => {
       if (data.ok) {
+        void utils.kiosk.getUserLoanedItems.invalidate();
         toast.success("Items checked out successfully");
         navigate("/kiosk/home");
       } else {
@@ -124,6 +127,19 @@ export default function KioskCheckout() {
               return;
             }
 
+            if (!item.consumable && item.stored === false) {
+              scannedIdsRef.current.delete(itemId);
+              toast.error(`${item.name} is marked as Lab Use only`);
+              return;
+            }
+
+            if (item.consumable && (item.consumable.available ?? 0) <= 0) {
+              scannedIdsRef.current.delete(itemId);
+              toast.error(`${item.name} is out of stock`);
+              return;
+            }
+
+            resetTimeout();
             setItems((prev) => [
               ...prev,
               { id: item.id, name: item.name, serial: item.serial },

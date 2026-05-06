@@ -11,7 +11,7 @@ import { ArrowLeft, Loader2, PackageCheck, QrCode } from "lucide-react";
 import { QRScanner } from "@/components/ui/qr-scanner";
 
 export default function KioskCheckin() {
-  const { session } = useKiosk();
+  const { session, resetTimeout } = useKiosk();
   const navigate = useNavigate();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -25,11 +25,14 @@ export default function KioskCheckin() {
       { enabled: !!session },
     );
 
+  const utils = trpc.useUtils();
+
   const getItem = trpc.kiosk.getItemByQR.useMutation();
 
   const checkin = trpc.kiosk.checkinItems.useMutation({
     onSuccess: (data) => {
       if (data.ok) {
+        void utils.kiosk.getUserLoanedItems.invalidate();
         toast.success("Items checked in successfully");
         navigate("/kiosk/home");
       } else {
@@ -67,6 +70,7 @@ export default function KioskCheckin() {
         return;
       }
 
+      resetTimeout();
       setSelectedIds((prev) => new Set(prev).add(item.id));
       toast.success(`Selected: ${item.name}`);
     } catch (err) {

@@ -53,15 +53,7 @@ export const kioskRouter = router({
       const { studentInfo, user } = await resolveUser(input.studentId);
 
       if (!user) {
-        // Only return name — email and discordId are not needed by the UI
-        return {
-          found: false as const,
-          studentInfo: {
-            studentId: studentInfo.studentId,
-            name: studentInfo.name,
-          },
-          user: null,
-        };
+        return { found: false as const, user: null };
       }
 
       return {
@@ -69,6 +61,8 @@ export const kioskRouter = router({
         studentInfo: {
           studentId: studentInfo.studentId,
           name: studentInfo.name,
+          email: studentInfo.email,
+          discordId: studentInfo.discordId,
         },
         user: { id: user.id, name: user.name, email: user.email },
       };
@@ -114,9 +108,13 @@ export const kioskRouter = router({
           where: { id: input.supervisorId },
           select: { name: true, role: true },
         });
-        if (supervisor && ["admin", "moderator"].includes(supervisor.role)) {
-          supervisorName = supervisor.name;
+        if (!supervisor || !["admin", "moderator"].includes(supervisor.role)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Selected supervisor is no longer a valid admin or moderator",
+          });
         }
+        supervisorName = supervisor.name;
       }
 
       const timestamp = new Date().toLocaleString("en-AU", {
@@ -165,6 +163,7 @@ export const kioskRouter = router({
           id: true,
           name: true,
           serial: true,
+          stored: true,
           consumable: { select: { available: true } },
           ItemRecords: {
             orderBy: { createdAt: "desc" },
@@ -215,7 +214,7 @@ export const kioskRouter = router({
         });
       }
 
-      // Step 1: candidate itemIds where this user has ever had a loaned=true record
+      // Fetch candidate itemIds where this user has ever had a loaned=true record
       const candidates = await prisma.itemRecord.findMany({
         where: {
           actionByUserId: user.id,
@@ -226,32 +225,28 @@ export const kioskRouter = router({
         distinct: ["itemId"],
       });
 
-      // Step 2: for each candidate, fetch the latest record overall.
-      // Include only items whose most recent record is still loaned by this user.
-      const results = await Promise.all(
-        candidates.map(async ({ itemId }) => {
-          const latest = await prisma.itemRecord.findFirst({
-            where: { itemId },
-            orderBy: { createdAt: "desc" },
-            select: {
-              id: true,
-              itemId: true,
-              loaned: true,
-              createdAt: true,
-              actionByUserId: true,
-              item: { select: { id: true, name: true, serial: true } },
-            },
-          });
+      const candidateIds = candidates.map((c) => c.itemId);
+      if (candidateIds.length === 0) return [];
 
-          if (!latest || !latest.loaned || latest.actionByUserId !== user.id) {
-            return null;
-          }
+      // Fetch the latest record for each candidate in a single query, then filter
+      // to items still loaned by this user.
+      const latestRecords = await prisma.itemRecord.findMany({
+        where: { itemId: { in: candidateIds } },
+        orderBy: { createdAt: "desc" },
+        distinct: ["itemId"],
+        select: {
+          id: true,
+          itemId: true,
+          loaned: true,
+          createdAt: true,
+          actionByUserId: true,
+          item: { select: { id: true, name: true, serial: true } },
+        },
+      });
 
-          return latest;
-        }),
+      return latestRecords.filter(
+        (r) => r.loaned && r.actionByUserId === user.id,
       );
-
-      return results.filter((r) => r !== null);
     }),
 
   checkinItems: kioskProcedure
