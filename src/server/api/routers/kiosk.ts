@@ -111,7 +111,8 @@ export const kioskRouter = router({
         if (!supervisor || !["admin", "moderator"].includes(supervisor.role)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Selected supervisor is no longer a valid admin or moderator",
+            message:
+              "Selected supervisor is no longer a valid admin or moderator",
           });
         }
         supervisorName = supervisor.name;

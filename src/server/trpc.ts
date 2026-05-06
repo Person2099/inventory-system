@@ -68,8 +68,7 @@ export const publicProcedure = t.procedure;
 export const kioskProcedure = t.procedure.use(({ ctx, next }) => {
   const secret = process.env.KIOSK_SECRET;
   const isDev =
-    process.env.NODE_ENV === "development" ||
-    process.env.NODE_ENV === "test";
+    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
   if (!secret) {
     if (!isDev) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
