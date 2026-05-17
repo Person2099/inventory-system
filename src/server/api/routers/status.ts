@@ -51,7 +51,12 @@ export type StatusAlert = z.infer<typeof alertSchema>;
 
 export const statusRouter = router({
   outages: publicProcedure
-    .output(z.object({ alerts: z.array(alertSchema), statusUrl: z.string().nullable() }))
+    .output(
+      z.object({
+        alerts: z.array(alertSchema),
+        statusUrl: z.string().nullable(),
+      }),
+    )
     .query(async () => {
       const base = process.env.UPTIME_KUMA_BASE;
       const page = process.env.UPTIME_KUMA_PAGE;

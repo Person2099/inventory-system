@@ -78,29 +78,29 @@ export default function Layout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <OutageBanner />
           <main className="m-4 w-full">
-          <div className="flex flex-row items-center gap-2">
-            {!hideSidebarTrigger && <SidebarTrigger />}
-            <Breadcrumb>
-              <BreadcrumbList>
-                {breadcrumbTrail?.map((loc, idx) => (
-                  <div key={loc.id} className="flex items-center">
-                    <BreadcrumbSeparator />
-                    <BreadcrumbItem>
-                      {idx === breadcrumbTrail.length - 1 ? (
-                        <BreadcrumbPage>{loc.name}</BreadcrumbPage>
-                      ) : (
-                        <BreadcrumbLink asChild>
-                          <Link to={`/${loc.id}`}>{loc.name}</Link>
-                        </BreadcrumbLink>
-                      )}
-                    </BreadcrumbItem>
-                  </div>
-                ))}
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <Outlet />
-        </main>
+            <div className="flex flex-row items-center gap-2">
+              {!hideSidebarTrigger && <SidebarTrigger />}
+              <Breadcrumb>
+                <BreadcrumbList>
+                  {breadcrumbTrail?.map((loc, idx) => (
+                    <div key={loc.id} className="flex items-center">
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        {idx === breadcrumbTrail.length - 1 ? (
+                          <BreadcrumbPage>{loc.name}</BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink asChild>
+                            <Link to={`/${loc.id}`}>{loc.name}</Link>
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                    </div>
+                  ))}
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+            <Outlet />
+          </main>
         </div>
       </SidebarProvider>
     </div>

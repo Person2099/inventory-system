@@ -81,7 +81,9 @@ export function OutageBanner() {
     return (
       <Wrapper
         className={bannerClass}
-        {...(statusUrl ? { href: statusUrl, target: "_blank", rel: "noopener noreferrer" } : {})}
+        {...(statusUrl
+          ? { href: statusUrl, target: "_blank", rel: "noopener noreferrer" }
+          : {})}
       >
         <div
           className={`flex items-center justify-center gap-2 text-sm font-medium px-4 ${item}`}
@@ -112,7 +114,9 @@ export function OutageBanner() {
   return (
     <MarqueeWrapper
       className={`${bannerClass} overflow-hidden`}
-      {...(statusUrl ? { href: statusUrl, target: "_blank", rel: "noopener noreferrer" } : {})}
+      {...(statusUrl
+        ? { href: statusUrl, target: "_blank", rel: "noopener noreferrer" }
+        : {})}
     >
       <div
         className="flex whitespace-nowrap animate-marquee"
