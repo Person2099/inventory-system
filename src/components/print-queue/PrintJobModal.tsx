@@ -86,9 +86,16 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
   );
 }
 
-export function PrintJobModal({ open, onOpenChange, onQueued, initialArchiveSource }: Props) {
+export function PrintJobModal({
+  open,
+  onOpenChange,
+  onQueued,
+  initialArchiveSource,
+}: Props) {
   const [step, setStep] = useState<Step>("archive");
-  const [archiveSource, setArchiveSource] = useState<ArchiveSource>(initialArchiveSource ?? "existing");
+  const [archiveSource, setArchiveSource] = useState<ArchiveSource>(
+    initialArchiveSource ?? "existing",
+  );
   const [archiveId, setArchiveId] = useState<number | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -578,7 +585,9 @@ export function PrintJobModal({ open, onOpenChange, onQueued, initialArchiveSour
                     }}
                   >
                     <Upload className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                    {isDraggingFile ? "Drop to upload" : "Drag & drop or click to select a .3mf file"}
+                    {isDraggingFile
+                      ? "Drop to upload"
+                      : "Drag & drop or click to select a .3mf file"}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 min-w-0">

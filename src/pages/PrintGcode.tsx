@@ -1,4 +1,10 @@
-import { type FormEvent, useState, useRef, useCallback, useEffect } from "react";
+import {
+  type FormEvent,
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { trpc } from "@/client/trpc";
 import { parse3mf, type ThreeMfFilamentInfo } from "@/lib/parse-3mf";
@@ -151,7 +157,9 @@ export default function PrintGcode() {
     !!statusQuery.data &&
     BLOCKED_PRINTER_STATES.has(statusQuery.data.state.toUpperCase());
 
-  const printerOptions = (printersQuery.data ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const printerOptions = (printersQuery.data ?? [])
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
   const selectedPrinter =
     printerOptions.find((printer) => printer.ipAddress === selectedPrinterIp) ??
     null;
