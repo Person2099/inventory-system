@@ -73,10 +73,11 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <OutageBanner />
       <SidebarProvider>
         <AppSidebar />
-        <main className="m-4 w-full">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <OutageBanner />
+          <main className="m-4 w-full">
           <div className="flex flex-row items-center gap-2">
             {!hideSidebarTrigger && <SidebarTrigger />}
             <Breadcrumb>
@@ -100,6 +101,7 @@ export default function Layout() {
           </div>
           <Outlet />
         </main>
+        </div>
       </SidebarProvider>
     </div>
   );
