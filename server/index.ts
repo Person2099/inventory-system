@@ -30,6 +30,7 @@ import {
     fileExists,
     downloadFile,
 } from "@/server/lib/s3";
+import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -534,6 +535,40 @@ app.get("/api/bambu-stream/:bambuddyId", async (c) => {
     resHeaders.set("X-Accel-Buffering", "no");
 
     return new Response(upstreamRes.body, { status: 200, headers: resHeaders });
+});
+
+// ─── 3MF file upload to BamBuddy ─────────────────────────────────────────────
+app.post("/api/print-queue/upload-3mf", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File))
+        throw new HTTPException(400, { message: "Missing file field" });
+
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".3mf"))
+        throw new HTTPException(400, { message: "Only .3mf files are accepted" });
+
+    const MAX_3MF_BYTES = 500 * 1024 * 1024;
+    const bytes = await file.arrayBuffer();
+    if (bytes.byteLength > MAX_3MF_BYTES)
+        throw new HTTPException(413, { message: "File exceeds 500 MB limit" });
+
+    try {
+        const archiveId = await uploadBambuddyArchive(
+            file.name,
+            Buffer.from(bytes),
+        );
+        return c.json({ archiveId });
+    } catch (err) {
+        logger.error({ err }, "Failed to upload 3MF to BamBuddy");
+        throw new HTTPException(502, {
+            message: `BamBuddy upload failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+    }
 });
 
 // MCP route

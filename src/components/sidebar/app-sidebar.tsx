@@ -19,6 +19,7 @@ import {
   FileText,
   ScrollText,
   ChevronDown,
+  ListOrdered,
 } from "lucide-react";
 import { authClient } from "@/auth/client";
 import { trpc } from "@/client/trpc";
@@ -49,6 +50,7 @@ const coreItems = [
 
 const printingItems = [
   { title: "Print", url: "/print", icon: Printer },
+  { title: "Queue", url: "/print-queue", icon: ListOrdered },
   { title: "Monitor", url: "/print-monitor", icon: Monitor },
   { title: "Printers", url: "/printer-management", icon: Wrench },
 ];

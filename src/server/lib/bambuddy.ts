@@ -35,6 +35,8 @@ export interface BambuddyPrinter {
   serial_number: string;
   ip_address: string;
   is_active: boolean;
+  model: string | null;
+  location: string | null;
 }
 
 export interface AMSTray {
@@ -326,6 +328,283 @@ export async function stopBambuddyCameraStream(
   );
   // Ignore errors — stream may have already stopped
   res.body?.cancel().catch(() => undefined);
+}
+
+// ─── Queue types ──────────────────────────────────────────────────────────────
+
+export interface PrintQueueItemCreate {
+  archive_id?: number | null;
+  library_file_id?: number | null;
+  printer_id?: number | null;
+  target_model?: string | null;
+  target_location?: string | null;
+  required_filament_types?: string[] | null;
+  filament_overrides?: Record<string, unknown>[] | null;
+  ams_mapping?: number[] | null;
+  plate_id?: number | null;
+  scheduled_time?: string | null;
+  require_previous_success?: boolean;
+  auto_off_after?: boolean;
+  manual_start?: boolean;
+  bed_levelling?: boolean;
+  flow_cali?: boolean;
+  vibration_cali?: boolean;
+  layer_inspect?: boolean;
+  timelapse?: boolean;
+  use_ams?: boolean;
+}
+
+export type QueueStatus =
+  | "pending"
+  | "printing"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export interface PrintQueueItemResponse {
+  id: number;
+  printer_id: number | null;
+  target_model: string | null;
+  target_location: string | null;
+  required_filament_types: string[] | null;
+  filament_overrides: Record<string, unknown>[] | null;
+  waiting_reason: string | null;
+  archive_id: number | null;
+  library_file_id: number | null;
+  position: number;
+  scheduled_time: string | null;
+  require_previous_success: boolean;
+  auto_off_after: boolean;
+  manual_start: boolean;
+  ams_mapping: number[] | null;
+  plate_id: number | null;
+  bed_levelling: boolean;
+  flow_cali: boolean;
+  vibration_cali: boolean;
+  layer_inspect: boolean;
+  timelapse: boolean;
+  use_ams: boolean;
+  gcode_injection: boolean;
+  status: QueueStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string | null;
+  archive_name: string | null;
+  archive_thumbnail: string | null;
+  library_file_name: string | null;
+  library_file_thumbnail: string | null;
+  printer_name: string | null;
+  print_time_seconds: number | null;
+  filament_used_grams: number | null;
+  filament_type: string | null;
+  filament_color: string | null;
+  layer_height: number | null;
+  nozzle_diameter: number | null;
+  sliced_for_model: string | null;
+  created_by_id: number | null;
+  created_by_username: string | null;
+  batch_id: number | null;
+  batch_name: string | null;
+  been_jumped: boolean;
+}
+
+export interface FilamentRequirement {
+  slot_id: number;
+  type: string | null;
+  color: string | null;
+  tray_info_idx: string | null;
+  used_grams: number | null;
+  used_meters: number | null;
+  used_in_plate: boolean;
+}
+
+export interface AvailableFilamentSlot {
+  printer_id: number;
+  printer_name: string;
+  ams_id: number;
+  tray_id: number;
+  flat_index: number;
+  tray_type: string | null;
+  tray_color: string | null;
+  tray_id_name: string | null;
+  remain: number;
+}
+
+export interface BambuddyArchive {
+  id: number;
+  filename: string;
+  print_name: string | null;
+  thumbnail_path: string | null;
+  status: string;
+  filament_type: string | null;
+  filament_color: string | null;
+  created_at: string;
+}
+
+// ─── Queue API ────────────────────────────────────────────────────────────────
+
+export async function listQueue(opts?: {
+  printerId?: number;
+  status?: string;
+}): Promise<PrintQueueItemResponse[]> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams();
+  if (opts?.printerId != null) params.set("printer_id", String(opts.printerId));
+  if (opts?.status) params.set("status", opts.status);
+  const qs = params.toString();
+  const res = await fetch(`${endpoint}/api/v1/queue/${qs ? `?${qs}` : ""}`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "list queue");
+  return res.json() as Promise<PrintQueueItemResponse[]>;
+}
+
+export async function addToQueue(
+  item: PrintQueueItemCreate,
+): Promise<PrintQueueItemResponse> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/`, {
+    method: "POST",
+    headers: { ...headers(apiKey), "Content-Type": "application/json" },
+    body: JSON.stringify(item),
+    signal: AbortSignal.timeout(15_000),
+  });
+  await checkResponse(res, "add to queue");
+  return res.json() as Promise<PrintQueueItemResponse>;
+}
+
+export async function cancelQueueItem(itemId: number): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}/cancel`, {
+    method: "POST",
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "cancel queue item");
+}
+
+export async function deleteQueueItem(itemId: number): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}`, {
+    method: "DELETE",
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "delete queue item");
+}
+
+export async function startQueueItem(itemId: number): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}/start`, {
+    method: "POST",
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(15_000),
+  });
+  await checkResponse(res, "start queue item");
+}
+
+export async function stopQueueItem(itemId: number): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}/stop`, {
+    method: "POST",
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(15_000),
+  });
+  await checkResponse(res, "stop queue item");
+}
+
+export async function getArchiveFilamentRequirements(
+  archiveId: number,
+): Promise<FilamentRequirement[]> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(
+    `${endpoint}/api/v1/archives/${archiveId}/filament-requirements`,
+    { headers: headers(apiKey), signal: AbortSignal.timeout(10_000) },
+  );
+  await checkResponse(res, "get filament requirements");
+  const data = (await res.json()) as
+    | { filaments?: FilamentRequirement[] }
+    | FilamentRequirement[];
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data.filaments) ? data.filaments : [];
+}
+
+/** Build AvailableFilamentSlot list by querying printer statuses directly.
+ *  Uses the same AMS data path that works for single-printer targeting.
+ *  Optionally filter by printer model and/or location. */
+async function collectFilamentSlotsFromStatuses(opts?: {
+  model?: string;
+  location?: string;
+}): Promise<AvailableFilamentSlot[]> {
+  const printers = await listBambuddyPrinters();
+  const candidates = printers.filter((p) => {
+    if (!p.is_active) return false;
+    if (opts?.model && p.model !== opts.model) return false;
+    if (opts?.location && p.location !== opts.location) return false;
+    return true;
+  });
+
+  const statuses = await Promise.allSettled(
+    candidates.map((p) => getBambuddyPrinterStatus(p.id)),
+  );
+
+  const slots: AvailableFilamentSlot[] = [];
+  for (let i = 0; i < statuses.length; i++) {
+    const result = statuses[i];
+    if (result.status !== "fulfilled") continue;
+    const status = result.value;
+    const printer = candidates[i];
+    for (const unit of status.ams) {
+      for (const tray of unit.tray) {
+        slots.push({
+          printer_id: printer.id,
+          printer_name: printer.name,
+          ams_id: unit.id,
+          tray_id: tray.id,
+          flat_index: unit.id * 4 + tray.id,
+          tray_type: tray.tray_type ?? null,
+          tray_color: tray.tray_color ?? null,
+          tray_id_name: tray.tray_id_name ?? null,
+          remain: tray.remain,
+        });
+      }
+    }
+  }
+  return slots;
+}
+
+export async function getAvailableFilamentsForModel(
+  model: string,
+  location?: string,
+): Promise<AvailableFilamentSlot[]> {
+  return collectFilamentSlotsFromStatuses({ model, location });
+}
+
+export async function getAllAvailableFilaments(): Promise<
+  AvailableFilamentSlot[]
+> {
+  return collectFilamentSlotsFromStatuses();
+}
+
+export async function listBambuddyArchives(opts?: {
+  limit?: number;
+  offset?: number;
+}): Promise<BambuddyArchive[]> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams();
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  if (opts?.offset != null) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  const res = await fetch(`${endpoint}/api/v1/archives/${qs ? `?${qs}` : ""}`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(15_000),
+  });
+  await checkResponse(res, "list archives");
+  const data = await res.json();
+  return Array.isArray(data) ? (data as BambuddyArchive[]) : [];
 }
 
 /** Fetch Prometheus-formatted metrics directly from Bambuddy. */

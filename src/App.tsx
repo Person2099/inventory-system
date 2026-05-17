@@ -23,6 +23,7 @@ import PrintGcode from "@/pages/PrintGcode";
 import PrintMonitoring from "@/pages/PrintMonitoring";
 import PrintCam from "@/pages/PrintCam";
 import PrinterManagement from "@/pages/PrinterManagement";
+import PrintQueue from "@/pages/PrintQueue";
 import { KioskProvider } from "@/contexts/kiosk-context";
 import KioskLanding from "@/pages/kiosk/KioskLanding";
 import KioskHome from "@/pages/kiosk/KioskHome";
@@ -87,6 +88,7 @@ const App = () => {
                   path="/printer-management"
                   element={<PrinterManagement />}
                 />
+                <Route path="/print-queue" element={<PrintQueue />} />
               </Route>
             </Routes>
           </KioskProvider>
