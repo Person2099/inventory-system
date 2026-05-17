@@ -24,6 +24,8 @@ import PrintMonitoring from "@/pages/PrintMonitoring";
 import PrintCam from "@/pages/PrintCam";
 import PrinterManagement from "@/pages/PrinterManagement";
 import PrintQueue from "@/pages/PrintQueue";
+import PrintStats from "@/pages/PrintStats";
+import PrintHistory from "@/pages/PrintHistory";
 import { KioskProvider } from "@/contexts/kiosk-context";
 import KioskLanding from "@/pages/kiosk/KioskLanding";
 import KioskHome from "@/pages/kiosk/KioskHome";
@@ -89,6 +91,8 @@ const App = () => {
                   element={<PrinterManagement />}
                 />
                 <Route path="/print-queue" element={<PrintQueue />} />
+                <Route path="/print-stats" element={<PrintStats />} />
+                <Route path="/print-history" element={<PrintHistory />} />
               </Route>
             </Routes>
           </KioskProvider>

@@ -630,3 +630,147 @@ export async function listBambuddyPrinterStatuses(): Promise<
   );
   return results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
 }
+
+// ─── Print Stats Types ────────────────────────────────────────────────────────
+
+export interface ArchiveStats {
+  total_prints: number;
+  successful_prints: number;
+  failed_prints: number;
+  total_print_time_hours: number;
+  total_filament_grams: number;
+  total_cost: number;
+  prints_by_filament_type: Record<string, unknown>;
+  prints_by_printer: Record<string, unknown>;
+  average_time_accuracy: number | null;
+  time_accuracy_by_printer: Record<string, unknown> | null;
+  total_energy_kwh: number;
+  total_energy_cost: number;
+  energy_data_warming_up: boolean;
+}
+
+export interface PrintLogEntry {
+  id: number;
+  print_name: string | null;
+  printer_name: string | null;
+  printer_id: number | null;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_seconds: number | null;
+  filament_type: string | null;
+  filament_color: string | null;
+  filament_used_grams: number | null;
+  thumbnail_path: string | null;
+  created_by_username: string | null;
+  created_at: string;
+}
+
+export interface PrintLogResponse {
+  items: PrintLogEntry[];
+  total: number;
+}
+
+export interface SpoolUsageHistoryEntry {
+  id: number;
+  spool_id: number;
+  printer_id: number | null;
+  print_name: string | null;
+  weight_used: number;
+  percent_used: number;
+  status: string;
+  cost: number | null;
+  created_at: string;
+}
+
+export interface FilamentCatalogEntry {
+  id: number;
+  type: string;
+  brand: string | null;
+  color: string | null;
+  color_hex: string | null;
+  cost_per_kg: number | null;
+  density: number | null;
+}
+
+// ─── Print Stats API ──────────────────────────────────────────────────────────
+
+export async function getArchiveStats(opts?: {
+  dateFrom?: string;
+  dateTo?: string;
+  createdById?: number;
+}): Promise<ArchiveStats> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams();
+  if (opts?.dateFrom) params.set("date_from", opts.dateFrom);
+  if (opts?.dateTo) params.set("date_to", opts.dateTo);
+  if (opts?.createdById != null)
+    params.set("created_by_id", String(opts.createdById));
+  const qs = params.toString();
+  const res = await fetch(
+    `${endpoint}/api/v1/archives/stats${qs ? `?${qs}` : ""}`,
+    { headers: headers(apiKey), signal: AbortSignal.timeout(15_000) },
+  );
+  await checkResponse(res, "get archive stats");
+  return res.json() as Promise<ArchiveStats>;
+}
+
+export async function getPrintLog(opts?: {
+  search?: string;
+  printerId?: number;
+  createdByUsername?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PrintLogResponse> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams();
+  if (opts?.search) params.set("search", opts.search);
+  if (opts?.printerId != null) params.set("printer_id", String(opts.printerId));
+  if (opts?.createdByUsername)
+    params.set("created_by_username", opts.createdByUsername);
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.dateFrom) params.set("date_from", opts.dateFrom);
+  if (opts?.dateTo) params.set("date_to", opts.dateTo);
+  params.set("limit", String(opts?.limit ?? 50));
+  params.set("offset", String(opts?.offset ?? 0));
+  const res = await fetch(
+    `${endpoint}/api/v1/print-log/?${params.toString()}`,
+    { headers: headers(apiKey), signal: AbortSignal.timeout(15_000) },
+  );
+  await checkResponse(res, "get print log");
+  return res.json() as Promise<PrintLogResponse>;
+}
+
+export async function getAllUsageHistory(opts?: {
+  printerId?: number;
+  limit?: number;
+}): Promise<SpoolUsageHistoryEntry[]> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams();
+  if (opts?.printerId != null) params.set("printer_id", String(opts.printerId));
+  params.set("limit", String(opts?.limit ?? 500));
+  const res = await fetch(
+    `${endpoint}/api/v1/inventory/usage?${params.toString()}`,
+    { headers: headers(apiKey), signal: AbortSignal.timeout(15_000) },
+  );
+  await checkResponse(res, "get all usage history");
+  return res.json() as Promise<SpoolUsageHistoryEntry[]>;
+}
+
+export async function getFilamentCatalog(): Promise<FilamentCatalogEntry[]> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/filament-catalog/`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "get filament catalog");
+  return res.json() as Promise<FilamentCatalogEntry[]>;
+}
+
+export function getPrintLogThumbnailUrl(entryId: number): string {
+  const { endpoint, apiKey } = getConfig();
+  return `${endpoint}/api/v1/print-log/${entryId}/thumbnail?api_key=${encodeURIComponent(apiKey)}`;
+}

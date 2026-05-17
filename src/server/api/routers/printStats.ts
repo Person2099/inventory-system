@@ -1,0 +1,261 @@
+import { router, userProcedure } from "@/server/trpc";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { logger as rootLogger } from "@/server/lib/logger";
+import {
+  getArchiveStats,
+  getPrintLog,
+  getAllUsageHistory,
+  getFilamentCatalog,
+  listBambuddyPrinters,
+} from "@/server/lib/bambuddy";
+
+const logger = rootLogger.child({ module: "router:printStats" });
+
+function daysAgoIso(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function toDateStr(dt: string): string {
+  return dt.slice(0, 10);
+}
+
+export const printStatsRouter = router({
+  overview: userProcedure
+    .input(
+      z.object({
+        dateFrom: z.string().optional(),
+        dateTo: z.string().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await getArchiveStats({
+          dateFrom: input.dateFrom,
+          dateTo: input.dateTo,
+        });
+      } catch (err) {
+        logger.error({ err }, "Failed to get archive stats");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch print statistics",
+        });
+      }
+    }),
+
+  printLog: userProcedure
+    .input(
+      z.object({
+        page: z.number().int().min(0).default(0),
+        pageSize: z.number().int().min(1).max(100).default(20),
+        printerId: z.number().int().positive().optional(),
+        username: z.string().optional(),
+        status: z.string().optional(),
+        search: z.string().optional(),
+        dateFrom: z.string().optional(),
+        dateTo: z.string().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await getPrintLog({
+          search: input.search,
+          printerId: input.printerId,
+          createdByUsername: input.username,
+          status: input.status,
+          dateFrom: input.dateFrom,
+          dateTo: input.dateTo,
+          limit: input.pageSize,
+          offset: input.page * input.pageSize,
+        });
+      } catch (err) {
+        logger.error({ err }, "Failed to get print log");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch print history",
+        });
+      }
+    }),
+
+  filamentTimeSeries: userProcedure
+    .input(
+      z.object({
+        days: z.union([
+          z.literal(7),
+          z.literal(30),
+          z.literal(90),
+          z.literal(365),
+        ]),
+        filamentTypes: z.array(z.string()).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        const dateFrom = daysAgoIso(input.days);
+        const result = await getPrintLog({
+          dateFrom,
+          limit: 500,
+          offset: 0,
+        });
+
+        const entries = result.items.filter(
+          (e) =>
+            e.filament_used_grams != null &&
+            e.filament_used_grams > 0 &&
+            (input.filamentTypes == null ||
+              input.filamentTypes.length === 0 ||
+              (e.filament_type != null &&
+                input.filamentTypes.includes(e.filament_type))),
+        );
+
+        // Collect all filament types present
+        const types = [
+          ...new Set(entries.map((e) => e.filament_type ?? "Unknown")),
+        ].sort();
+
+        // Build a date → { [type]: grams } map
+        const byDate = new Map<string, Record<string, number>>();
+        for (const entry of entries) {
+          const date = toDateStr(entry.created_at);
+          const type = entry.filament_type ?? "Unknown";
+          if (!byDate.has(date)) byDate.set(date, {});
+          const day = byDate.get(date)!;
+          day[type] = (day[type] ?? 0) + (entry.filament_used_grams ?? 0);
+        }
+
+        // Fill all days in range (ascending)
+        type TimeRow = { date: string } & Record<string, number | string>;
+        const rows: TimeRow[] = [];
+        const start = new Date(dateFrom);
+        const today = new Date();
+        for (let d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+          const key = d.toISOString().slice(0, 10);
+          const day = byDate.get(key) ?? {};
+          const row: TimeRow = { date: key };
+          for (const t of types) row[t] = day[t] ?? 0;
+          rows.push(row);
+        }
+
+        return { rows, types };
+      } catch (err) {
+        logger.error({ err }, "Failed to build filament time series");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not build filament usage chart",
+        });
+      }
+    }),
+
+  filamentLeaderboard: userProcedure
+    .input(
+      z.object({
+        days: z.union([
+          z.literal(7),
+          z.literal(30),
+          z.literal(90),
+          z.literal(365),
+          z.literal(0), // 0 = all time
+        ]),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        const dateFrom = input.days > 0 ? daysAgoIso(input.days) : undefined;
+
+        const PAGE = 500;
+        const first = await getPrintLog({ dateFrom, limit: PAGE, offset: 0 });
+        const allItems = [...first.items];
+        const pages = Math.ceil(first.total / PAGE);
+        for (let p = 1; p < pages; p++) {
+          const page = await getPrintLog({
+            dateFrom,
+            limit: PAGE,
+            offset: p * PAGE,
+          });
+          allItems.push(...page.items);
+        }
+
+        type LeaderEntry = {
+          type: string;
+          color: string | null;
+          printCount: number;
+          totalGrams: number;
+        };
+        const byKey = new Map<string, LeaderEntry>();
+
+        for (const entry of allItems) {
+          if (!entry.filament_type) continue;
+          const key = `${entry.filament_type}||${entry.filament_color ?? ""}`;
+          const existing = byKey.get(key);
+          if (existing) {
+            existing.printCount += 1;
+            existing.totalGrams += entry.filament_used_grams ?? 0;
+          } else {
+            byKey.set(key, {
+              type: entry.filament_type,
+              color: entry.filament_color ?? null,
+              printCount: 1,
+              totalGrams: entry.filament_used_grams ?? 0,
+            });
+          }
+        }
+
+        return [...byKey.values()].sort((a, b) => b.printCount - a.printCount);
+      } catch (err) {
+        logger.error({ err }, "Failed to build filament leaderboard");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch filament leaderboard",
+        });
+      }
+    }),
+
+  usageHistory: userProcedure
+    .input(
+      z.object({
+        printerId: z.number().int().positive().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await getAllUsageHistory({ printerId: input.printerId });
+      } catch (err) {
+        logger.error({ err }, "Failed to get usage history");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch spool usage history",
+        });
+      }
+    }),
+
+  filamentCatalog: userProcedure.query(async () => {
+    try {
+      return await getFilamentCatalog();
+    } catch (err) {
+      logger.error({ err }, "Failed to get filament catalog");
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Could not fetch filament catalog",
+      });
+    }
+  }),
+
+  printers: userProcedure.query(async () => {
+    try {
+      const printers = await listBambuddyPrinters();
+      return printers.filter((p) => p.is_active);
+    } catch (err) {
+      logger.error({ err }, "Failed to list printers for stats");
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Could not fetch printers",
+      });
+    }
+  }),
+
+  exportAvailable: userProcedure.query(() => {
+    return !!(process.env.BAMBUDDY_ENDPOINT && process.env.BAMBUDDY_API_KEY);
+  }),
+});
