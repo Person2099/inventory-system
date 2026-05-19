@@ -309,7 +309,9 @@ export const printStatsRouter = router({
     .query(async ({ input }) => {
       try {
         const dateFrom =
-          input.days > 0 ? new Date(Date.now() - input.days * 86400_000) : undefined;
+          input.days > 0
+            ? new Date(Date.now() - input.days * 86400_000)
+            : undefined;
 
         const submissions = await prisma.printQueueSubmission.findMany({
           where: {
@@ -330,15 +332,21 @@ export const printStatsRouter = router({
         >();
         for (const sub of submissions) {
           const projectName = sub.notionProjectName ?? null;
-          const key = projectName ?? (sub.personalUse ? "__personal__" : "__unknown__");
-          const label = projectName ?? (sub.personalUse ? "Personal use" : "Unknown");
+          const key =
+            projectName ?? (sub.personalUse ? "__personal__" : "__unknown__");
+          const label =
+            projectName ?? (sub.personalUse ? "Personal use" : "Unknown");
           const grams = sub.capturedFilamentGrams ?? 0;
           const existing = byProject.get(key);
           if (existing) {
             existing.printCount++;
             existing.totalGrams += grams;
           } else {
-            byProject.set(key, { projectName: label, printCount: 1, totalGrams: grams });
+            byProject.set(key, {
+              projectName: label,
+              printCount: 1,
+              totalGrams: grams,
+            });
           }
         }
 
@@ -369,7 +377,9 @@ export const printStatsRouter = router({
     .query(async ({ input }) => {
       try {
         const dateFrom =
-          input.days > 0 ? new Date(Date.now() - input.days * 86400_000) : undefined;
+          input.days > 0
+            ? new Date(Date.now() - input.days * 86400_000)
+            : undefined;
 
         const submissions = await prisma.printQueueSubmission.findMany({
           where: {
@@ -395,7 +405,11 @@ export const printStatsRouter = router({
             existing.printCount++;
             existing.totalGrams += grams;
           } else {
-            byPerson.set(username, { username, printCount: 1, totalGrams: grams });
+            byPerson.set(username, {
+              username,
+              printCount: 1,
+              totalGrams: grams,
+            });
           }
         }
 

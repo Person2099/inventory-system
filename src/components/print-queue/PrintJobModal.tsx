@@ -156,18 +156,10 @@ export function PrintJobModal({
       },
     );
 
-  const { data: anyFilaments } = trpc.printQueue.getAvailableFilaments.useQuery(
-    undefined,
-    {
-      enabled: targetingMode === "any" && step === "filament",
-    },
-  );
-
   const multiPrinterFilaments = useMemo(() => {
     if (targetingMode === "model") return modelFilaments ?? [];
-    if (targetingMode === "any") return anyFilaments ?? [];
     return [] as NonNullable<typeof modelFilaments>;
-  }, [targetingMode, modelFilaments, anyFilaments]);
+  }, [targetingMode, modelFilaments]);
 
   // Per-slot type count so UI can show "(1 of 3)" labels
   const slotTypeCounts = useMemo(() => {
@@ -194,9 +186,9 @@ export function PrintJobModal({
     return result;
   }, [filamentReqs]);
 
-  // For model/any targeting: narrow possible printers based on selected slot colors.
+  // For model targeting: narrow possible printers based on selected slot colors.
   const possiblePrinterIds = useMemo(() => {
-    if (targetingMode === "printer" || multiPrinterFilaments.length === 0)
+    if (targetingMode !== "model" || multiPrinterFilaments.length === 0)
       return null;
     const colorSelections = [...slotSelections.entries()].filter(
       ([, sel]) => sel.mode === "color" && sel.colorHex,
@@ -212,9 +204,7 @@ export function PrintJobModal({
         multiPrinterFilaments
           .filter((f) => {
             const fHex = (f.tray_color ?? "").slice(0, 6).toUpperCase();
-            return (
-              fHex === selHex && filamentTypeMatches(f.tray_type, reqType)
-            );
+            return fHex === selHex && filamentTypeMatches(f.tray_type, reqType);
           })
           .map((f) => f.printer_id),
       );
@@ -245,6 +235,21 @@ export function PrintJobModal({
       setSelectedProjectId("");
     }
   }, [open]);
+
+  // Auto-set targeting when selected archive has a known sliced_for_model
+  useEffect(() => {
+    if (!archiveId || !archives || !printers) return;
+    const archive = archives.find((a) => a.id === archiveId);
+    if (!archive?.sliced_for_model) return;
+    const model = archive.sliced_for_model;
+    const modelExists = printers.some(
+      (p) => p.model?.toLowerCase() === model.toLowerCase(),
+    );
+    if (modelExists && targetingMode === "any") {
+      setTargetingMode("model");
+      setSelectedModel(model);
+    }
+  }, [archiveId, archives, printers]);
 
   // Initialise per-slot selections when requirements load
   useEffect(() => {
@@ -345,7 +350,8 @@ export function PrintJobModal({
         vibrationCali: true,
         flowCali: false,
       },
-      notionProjectId: selectedProjectId !== "__personal__" ? selectedProjectId : null,
+      notionProjectId:
+        selectedProjectId !== "__personal__" ? selectedProjectId : null,
       notionProjectName: selectedProject?.name ?? null,
       personalUse: selectedProjectId === "__personal__",
     });
@@ -541,6 +547,11 @@ export function PrintJobModal({
                         <span className="break-words whitespace-normal flex-1 min-w-0">
                           {archive.print_name ?? archive.filename}
                         </span>
+                        {archive.sliced_for_model && (
+                          <Badge variant="secondary" className="text-xs shrink-0">
+                            {archive.sliced_for_model}
+                          </Badge>
+                        )}
                         {archive.filament_type && (
                           <Badge variant="outline" className="text-xs shrink-0">
                             {archive.filament_type}
@@ -709,10 +720,17 @@ export function PrintJobModal({
         {/* ── Step: filament ── */}
         {step === "filament" && (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Optionally restrict each required filament type to a specific
-              colour. Leave as "Any" to let Bambuddy pick automatically.
-            </p>
+            {targetingMode === "any" ? (
+              <p className="text-sm text-muted-foreground">
+                Colour selection is not available when targeting any printer —
+                Bambuddy picks the best available filament automatically.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Optionally restrict each required filament type to a specific
+                colour. Leave as "Any" to let Bambuddy pick automatically.
+              </p>
+            )}
 
             {reqsLoading && <Skeleton className="h-24 w-full" />}
 
@@ -722,14 +740,48 @@ export function PrintJobModal({
               </p>
             )}
 
+            {/* Any-targeting: show types as info only, no colour picker */}
             {!reqsLoading &&
               filamentReqs &&
               filamentReqs.length > 0 &&
+              targetingMode === "any" && (
+                <div className="space-y-2">
+                  {filamentReqs.map((req, slotIdx) => {
+                    if (!req.type) return null;
+                    const typeCount = slotTypeCounts.get(req.type) ?? 1;
+                    const slotNum = slotTypeIndices.get(slotIdx) ?? 1;
+                    return (
+                      <div
+                        key={slotIdx}
+                        className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="text-xs font-mono shrink-0"
+                        >
+                          {req.type}
+                        </Badge>
+                        {typeCount > 1 && (
+                          <span className="text-xs text-muted-foreground">
+                            {slotNum} of {typeCount}
+                          </span>
+                        )}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          Any colour
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+            {!reqsLoading &&
+              filamentReqs &&
+              filamentReqs.length > 0 &&
+              targetingMode !== "any" &&
               (() => {
                 const isMultiPrinter = targetingMode !== "printer";
-                const multiLoading =
-                  (targetingMode === "model" && !modelFilaments) ||
-                  (targetingMode === "any" && !anyFilaments);
+                const multiLoading = targetingMode === "model" && !modelFilaments;
                 const printerLoading =
                   targetingMode === "printer" && !printerAms;
 
@@ -841,9 +893,9 @@ export function PrintJobModal({
                                     <div className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
                                       <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
                                       <span>
-                                        Selected colours require different
-                                        printers — no single printer has all of
-                                        them.
+                                        No printer currently has all selected
+                                        colours — job will wait until one
+                                        becomes available.
                                       </span>
                                     </div>
                                   );
@@ -940,33 +992,23 @@ export function PrintJobModal({
                       );
                     })}
 
-                    {/* Narrow-printer hint for model/any targeting */}
-                    {isMultiPrinter &&
-                      hasColorSelections &&
-                      possiblePrinterIds !== null &&
-                      possiblePrinterIds.size > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {possiblePrinterIds.size === 1
-                            ? "Colour selection targets 1 compatible printer."
-                            : `Colour selection targets ${possiblePrinterIds.size} compatible printers.`}
-                        </p>
-                      )}
-
-                    {isMultiPrinter &&
-                      hasColorSelections &&
-                      targetingMode === "model" && (
-                        <div className="flex gap-1.5 rounded-md border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-2.5 text-xs text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
-                          <span>
-                            Colour preferences with model targeting are
-                            best-effort — exact slot assignment happens at
-                            dispatch when a printer is selected.
-                          </span>
-                        </div>
-                      )}
+                    {/* Wait-for-colour hint for model targeting */}
+                    {isMultiPrinter && hasColorSelections && (
+                      <div className="flex gap-1.5 rounded-md border border-blue-400/40 bg-blue-50 dark:bg-blue-950/20 p-2.5 text-xs text-blue-700 dark:text-blue-400">
+                        <span>
+                          {possiblePrinterIds !== null &&
+                          possiblePrinterIds.size > 0
+                            ? `${possiblePrinterIds.size} printer${possiblePrinterIds.size === 1 ? "" : "s"} currently ${possiblePrinterIds.size === 1 ? "has" : "have"} all selected colours. `
+                            : ""}
+                          Job will wait for a printer with these exact colours
+                          loaded before dispatching.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
+
           </div>
         )}
 

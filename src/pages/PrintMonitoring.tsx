@@ -18,7 +18,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Video, Loader2, Wifi, Play, Square, CheckSquare, Info } from "lucide-react";
+import {
+  Video,
+  Loader2,
+  Wifi,
+  Play,
+  Square,
+  CheckSquare,
+  Info,
+} from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 

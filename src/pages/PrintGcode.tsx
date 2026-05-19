@@ -218,7 +218,10 @@ export default function PrintGcode() {
       printerIpAddress: selectedPrinterIp,
       fileName: selectedFile.name,
       fileContentBase64,
-      notionProjectId: selectedProjectId && selectedProjectId !== "__personal__" ? selectedProjectId : null,
+      notionProjectId:
+        selectedProjectId && selectedProjectId !== "__personal__"
+          ? selectedProjectId
+          : null,
       notionProjectName: selectedProject?.name ?? null,
       personalUse: selectedProjectId === "__personal__",
       ...(isBambu && { useAms, amsMapping }),

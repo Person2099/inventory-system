@@ -43,7 +43,10 @@ async function runPoll(): Promise<void> {
 
   if (pending.length === 0) return;
 
-  logger.debug({ count: pending.length }, "Polling queue stats for pending submissions");
+  logger.debug(
+    { count: pending.length },
+    "Polling queue stats for pending submissions",
+  );
 
   for (const submission of pending) {
     try {
@@ -59,7 +62,10 @@ async function runPoll(): Promise<void> {
             data: { capturedStatus: "missed", capturedAt: new Date() },
           });
           logger.warn(
-            { submissionId: submission.id, bambuddyQueueItemId: submission.bambuddyQueueItemId },
+            {
+              submissionId: submission.id,
+              bambuddyQueueItemId: submission.bambuddyQueueItemId,
+            },
             "Queue item gone before stats captured",
           );
         }
@@ -97,7 +103,9 @@ async function runPoll(): Promise<void> {
           capturedStatus: item.status,
           capturedAt: new Date(),
           capturedStartedAt: item.started_at ? new Date(item.started_at) : null,
-          capturedCompletedAt: item.completed_at ? new Date(item.completed_at) : null,
+          capturedCompletedAt: item.completed_at
+            ? new Date(item.completed_at)
+            : null,
           capturedFilamentGrams: item.filament_used_grams ?? null,
           capturedFilamentType: item.filament_type ?? null,
           capturedFilamentColor: item.filament_color ?? null,

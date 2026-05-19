@@ -66,15 +66,24 @@ export default function KioskCheckin() {
   const handleQRScan = async (qrData: string): Promise<ScanFeedback> => {
     try {
       const item = await getItem.mutateAsync({ qrData });
-      if (!item) return { type: "error", title: "Not found", message: "Item not found" };
+      if (!item)
+        return { type: "error", title: "Not found", message: "Item not found" };
 
       const loaned = loanedItems?.find((r) => r.itemId === item.id);
       if (!loaned) {
-        return { type: "error", title: "Not your item", message: `${item.name} is not in your loaned items` };
+        return {
+          type: "error",
+          title: "Not your item",
+          message: `${item.name} is not in your loaned items`,
+        };
       }
 
       if (selectedIds.has(item.id)) {
-        return { type: "info", title: "Already selected", message: `${item.name} is already selected` };
+        return {
+          type: "info",
+          title: "Already selected",
+          message: `${item.name} is already selected`,
+        };
       }
 
       resetTimeout();

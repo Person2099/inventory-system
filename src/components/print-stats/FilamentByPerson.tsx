@@ -44,7 +44,9 @@ export function FilamentByPerson() {
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <div>
           <CardTitle>Filament by Person</CardTitle>
-          <CardDescription>Filament used per team member by weight</CardDescription>
+          <CardDescription>
+            Filament used per team member by weight
+          </CardDescription>
         </div>
         <div className="flex gap-1">
           {OPTIONS.map((o) => (

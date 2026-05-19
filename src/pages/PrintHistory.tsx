@@ -133,7 +133,8 @@ export default function PrintHistory() {
     filamentUsedGrams: e.filament_used_grams,
     thumbnailPath: e.thumbnail_path,
     createdByUsername: e.created_by_username,
-    notionProjectName: (e as { notionProjectName?: string | null }).notionProjectName ?? null,
+    notionProjectName:
+      (e as { notionProjectName?: string | null }).notionProjectName ?? null,
     personalUse: (e as { personalUse?: boolean | null }).personalUse ?? null,
     createdAt: e.created_at,
   }));

@@ -317,7 +317,9 @@ export function getBambuddyStreamUrl(
   return `${endpoint}/api/v1/printers/${printerId}/camera/stream?token=${encodeURIComponent(token)}&fps=${fps}`;
 }
 
-export async function clearBambuddyBuildPlate(printerId: number): Promise<void> {
+export async function clearBambuddyBuildPlate(
+  printerId: number,
+): Promise<void> {
   const { endpoint, apiKey } = getConfig();
   const res = await fetch(
     `${endpoint}/api/v1/printers/${printerId}/clear-plate`,
@@ -348,6 +350,29 @@ export async function stopBambuddyCameraStream(
 
 // ─── Queue types ──────────────────────────────────────────────────────────────
 
+export interface FilamentOverride {
+  slot_id: number;
+  type: string;
+  color: string;
+  color_name: string;
+  force_color_match: boolean;
+}
+
+export interface PrintQueueItemUpdate {
+  filament_overrides?: FilamentOverride[] | null;
+  ams_mapping?: number[] | null;
+  printer_id?: number | null;
+  target_model?: string | null;
+  target_location?: string | null;
+  manual_start?: boolean;
+  bed_levelling?: boolean;
+  flow_cali?: boolean;
+  vibration_cali?: boolean;
+  layer_inspect?: boolean;
+  timelapse?: boolean;
+  use_ams?: boolean;
+}
+
 export interface PrintQueueItemCreate {
   archive_id?: number | null;
   library_file_id?: number | null;
@@ -355,7 +380,7 @@ export interface PrintQueueItemCreate {
   target_model?: string | null;
   target_location?: string | null;
   required_filament_types?: string[] | null;
-  filament_overrides?: Record<string, unknown>[] | null;
+  filament_overrides?: FilamentOverride[] | null;
   ams_mapping?: number[] | null;
   plate_id?: number | null;
   scheduled_time?: string | null;
@@ -384,7 +409,7 @@ export interface PrintQueueItemResponse {
   target_model: string | null;
   target_location: string | null;
   required_filament_types: string[] | null;
-  filament_overrides: Record<string, unknown>[] | null;
+  filament_overrides: FilamentOverride[] | null;
   waiting_reason: string | null;
   archive_id: number | null;
   library_file_id: number | null;
@@ -457,6 +482,7 @@ export interface BambuddyArchive {
   status: string;
   filament_type: string | null;
   filament_color: string | null;
+  sliced_for_model: string | null;
   created_at: string;
 }
 
@@ -524,6 +550,21 @@ export async function deleteQueueItem(itemId: number): Promise<void> {
     signal: AbortSignal.timeout(10_000),
   });
   await checkResponse(res, "delete queue item");
+}
+
+export async function updateQueueItem(
+  itemId: number,
+  update: PrintQueueItemUpdate,
+): Promise<PrintQueueItemResponse> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}`, {
+    method: "PATCH",
+    headers: { ...headers(apiKey), "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+    signal: AbortSignal.timeout(15_000),
+  });
+  await checkResponse(res, "update queue item");
+  return res.json() as Promise<PrintQueueItemResponse>;
 }
 
 export async function startQueueItem(itemId: number): Promise<void> {

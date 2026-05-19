@@ -17,6 +17,8 @@ import {
   getAvailableFilamentsForModel,
   getAllAvailableFilaments,
   listBambuddyArchives,
+  updateQueueItem,
+  type FilamentOverride,
 } from "@/server/lib/bambuddy";
 import {
   buildAmsSlots,
@@ -222,31 +224,15 @@ export const printQueueRouter = router({
 
       let amsMappingResult: number[] | null = null;
       let unmatched: number[] = [];
-      let requiredFilamentTypes: string[] | null = null;
       let manualStart = options.manualStart;
 
-      let filamentOverrides:
-        | { slot_id: number; type: string; color: string }[]
-        | null = null;
+      let filamentOverrides: FilamentOverride[] | null = null;
 
       if (filamentConstraints.length > 0) {
-        const typeConstraints = filamentConstraints.filter(
-          (c) => c.type && !c.colorHex,
-        );
         const colorConstraints = filamentConstraints.filter((c) => c.colorHex);
 
-        if (typeConstraints.length > 0) {
-          requiredFilamentTypes = Array.from(
-            {
-              length: Math.max(...typeConstraints.map((c) => c.slotIndex)) + 1,
-            },
-            (_, i) => {
-              const constraint = typeConstraints.find((c) => c.slotIndex === i);
-              return constraint?.type ?? "";
-            },
-          ).filter(Boolean);
-        }
-
+        // Specific-printer targeting: resolve AMS mapping against that printer's
+        // live AMS state so the job starts on the right slot immediately.
         if (colorConstraints.length > 0 && targeting.mode === "printer") {
           try {
             const status = await getBambuddyPrinterStatus(targeting.printerId);
@@ -273,20 +259,28 @@ export const printQueueRouter = router({
           }
         }
 
-        // For model/any targeting, pass color preferences as filament_overrides so
-        // Bambuddy's dispatch engine can honour them when it assigns a printer.
-        if (colorConstraints.length > 0 && targeting.mode !== "printer") {
+        // Model targeting: send force_color_match overrides so Bambuddy's
+        // scheduler waits for a printer of the target model with exact colours
+        // loaded. Bambuddy computes the AMS mapping at dispatch time.
+        // "Any" targeting is intentionally excluded — Bambuddy drops
+        // filament_overrides when no target_model is set.
+        if (colorConstraints.length > 0 && targeting.mode === "model") {
           filamentOverrides = colorConstraints
-            .filter((c) => c.slotId != null && c.type && c.colorHex)
+            .filter((c) => c.type && c.colorHex && c.slotId != null)
             .map((c) => ({
               slot_id: c.slotId!,
               type: c.type!,
-              // tray_color is RRGGBBAA — send full 8-char without # to match Bambuddy's AMS format
-              color: c.colorHex!.replace(/^#/, "").toUpperCase(),
-              ...(c.colorName ? { color_name: c.colorName } : {}),
+              color: `#${c.colorHex!.replace(/^#/, "").slice(0, 6).toUpperCase()}`,
+              color_name:
+                c.colorName ??
+                `#${c.colorHex!.replace(/^#/, "").slice(0, 6).toUpperCase()}`,
               force_color_match: true,
             }));
           if (filamentOverrides.length === 0) filamentOverrides = null;
+          logger.info(
+            { colorConstraints: colorConstraints.length },
+            "Queuing with force_color_match overrides — Bambuddy will wait for matching printer",
+          );
         }
       }
 
@@ -306,7 +300,6 @@ export const printQueueRouter = router({
         archive_id: archiveId,
         printer_id: targeting.mode === "printer" ? targeting.printerId : null,
         target_model: targeting.mode === "model" ? targeting.model : null,
-        required_filament_types: requiredFilamentTypes,
         filament_overrides: filamentOverrides,
         ams_mapping: amsMappingResult,
         manual_start: manualStart,
@@ -318,7 +311,38 @@ export const printQueueRouter = router({
       };
 
       try {
-        const result = await addToQueue(queuePayload);
+        let result = await addToQueue(queuePayload);
+
+        // If overrides were intended but bambuddy didn't persist them in the
+        // POST response, patch the item immediately. This handles cases where
+        // bambuddy silently drops overrides on creation (e.g. colour format
+        // mismatch triggering a validation skip server-side).
+        if (
+          filamentOverrides !== null &&
+          filamentOverrides.length > 0 &&
+          (result.filament_overrides === null ||
+            result.filament_overrides.length === 0)
+        ) {
+          logger.warn(
+            { queueItemId: result.id, filamentOverrides },
+            "filament_overrides missing from POST response — patching queue item",
+          );
+          try {
+            result = await updateQueueItem(result.id, {
+              filament_overrides: filamentOverrides,
+            });
+            logger.info(
+              { queueItemId: result.id, storedFilamentOverrides: result.filament_overrides },
+              "filament_overrides applied via PATCH",
+            );
+          } catch (patchErr) {
+            logger.error(
+              { patchErr, queueItemId: result.id },
+              "PATCH filament_overrides failed — job queued without colour enforcement",
+            );
+          }
+        }
+
         try {
           await prisma.printQueueSubmission.create({
             data: {

@@ -137,7 +137,11 @@ export default function KioskCheckout() {
 
           // Claim the slot synchronously before awaiting to prevent TOCTOU race
           if (scannedIdsRef.current.has(itemId)) {
-            showScanFeedback("info", "Already scanned", "Item is already in your list");
+            showScanFeedback(
+              "info",
+              "Already scanned",
+              "Item is already in your list",
+            );
             return;
           }
           scannedIdsRef.current.add(itemId);
@@ -151,20 +155,32 @@ export default function KioskCheckout() {
 
             if (!item.consumable && item.stored === false) {
               scannedIdsRef.current.delete(itemId);
-              showScanFeedback("error", "Cannot check out", `${item.name} is Lab Use only`);
+              showScanFeedback(
+                "error",
+                "Cannot check out",
+                `${item.name} is Lab Use only`,
+              );
               return;
             }
 
             const latestRecord = item.ItemRecords[0];
             if (latestRecord?.loaned) {
               scannedIdsRef.current.delete(itemId);
-              showScanFeedback("error", "Cannot check out", `${item.name} is already on loan`);
+              showScanFeedback(
+                "error",
+                "Cannot check out",
+                `${item.name} is already on loan`,
+              );
               return;
             }
 
             if (item.consumable && (item.consumable.available ?? 0) <= 0) {
               scannedIdsRef.current.delete(itemId);
-              showScanFeedback("error", "Cannot check out", `${item.name} is out of stock`);
+              showScanFeedback(
+                "error",
+                "Cannot check out",
+                `${item.name} is out of stock`,
+              );
               return;
             }
 
@@ -280,9 +296,7 @@ export default function KioskCheckout() {
               <div
                 key={flashType + String(scanFeedback?.message)}
                 className={`absolute inset-0 pointer-events-none animate-[flash_0.4s_ease-out_forwards] ${
-                  flashType === "success"
-                    ? "bg-green-500/40"
-                    : "bg-red-500/40"
+                  flashType === "success" ? "bg-green-500/40" : "bg-red-500/40"
                 }`}
               />
             )}

@@ -161,6 +161,11 @@ function QueueItemRow({
           <span className="flex items-center gap-1">
             <Printer className="h-3 w-3" />
             {printerLabel}
+            {item.sliced_for_model &&
+              !item.printer_id &&
+              !item.target_model && (
+                <span className="opacity-60">({item.sliced_for_model})</span>
+              )}
           </span>
           {item.print_time_seconds != null && (
             <span className="flex items-center gap-1">
