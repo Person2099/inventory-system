@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Video, Loader2, Wifi, Play, Square, CheckSquare } from "lucide-react";
+import { Video, Loader2, Wifi, Play, Square, CheckSquare, Info } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 
@@ -805,6 +805,15 @@ export default function PrintMonitoring() {
             View All Webcams
           </Button>
         ) : null}
+      </div>
+
+      <div className="flex items-start gap-2.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-3">
+        <Info className="h-4 w-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+        <p className="text-sm text-blue-700 dark:text-blue-300">
+          Once you remove your print from the build plate, click the printer
+          card and select <strong>Mark Build Plate Cleared</strong> to
+          automatically release the next job in the queue.
+        </p>
       </div>
 
       {dashboardQuery.isLoading ? (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Info } from "lucide-react";
 import { PrintQueuePanel } from "@/components/print-queue/PrintQueuePanel";
 import { PrintJobModal } from "@/components/print-queue/PrintJobModal";
 import { trpc } from "@/client/trpc";
@@ -51,6 +51,15 @@ export default function PrintQueue() {
           <Plus className="h-4 w-4 mr-1.5" />
           Queue job
         </Button>
+      </div>
+
+      <div className="flex items-start gap-2.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-3">
+        <Info className="h-4 w-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+        <p className="text-sm text-blue-700 dark:text-blue-300">
+          After collecting your print, mark the build plate as cleared in{" "}
+          <strong>Printer Monitoring</strong> to automatically release the next
+          job in the queue.
+        </p>
       </div>
 
       {/* Status filter tabs */}
