@@ -104,6 +104,7 @@ export interface BambuddyPrinterStatus {
   wifi_signal: number | null;
   sdcard: boolean;
   nozzles: { nozzle_type: string; nozzle_diameter: string }[];
+  awaiting_plate_clear: boolean;
 }
 
 export interface ReprintOptions {
@@ -314,6 +315,19 @@ export function getBambuddyStreamUrl(
 ): string {
   const { endpoint } = getConfig();
   return `${endpoint}/api/v1/printers/${printerId}/camera/stream?token=${encodeURIComponent(token)}&fps=${fps}`;
+}
+
+export async function clearBambuddyBuildPlate(printerId: number): Promise<void> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(
+    `${endpoint}/api/v1/printers/${printerId}/clear-plate`,
+    {
+      method: "POST",
+      headers: headers(apiKey),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  await checkResponse(res, "clear build plate");
 }
 
 export async function stopBambuddyCameraStream(

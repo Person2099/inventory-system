@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Video, Loader2, Wifi, Play, Square } from "lucide-react";
+import { Video, Loader2, Wifi, Play, Square, CheckSquare } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 
@@ -157,6 +157,14 @@ function PrinterCard({
         </div>
 
         <div className="mt-auto space-y-1.5">
+          {status.awaitingPlateClear ? (
+            <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5">
+              <CheckSquare className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                Awaiting plate clear
+              </span>
+            </div>
+          ) : null}
           {status.startedBy ? (
             <div className="bg-primary/5 rounded-md px-2.5 py-1.5 border border-primary/20">
               <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
@@ -209,18 +217,37 @@ function PrinterDetail({
   status: PrinterStatus;
   onClose: () => void;
 }) {
+  const utils = trpc.useUtils();
+
   const pauseMutation = trpc.print.pausePrint.useMutation({
-    onSuccess: (result) => toast.success(result.message),
+    onSuccess: async (result) => {
+      toast.success(result.message);
+      await utils.print.getLivePrinterStatuses.invalidate();
+    },
     onError: (error) => toast.error(error.message),
   });
 
   const resumeMutation = trpc.print.resumePrint.useMutation({
-    onSuccess: (result) => toast.success(result.message),
+    onSuccess: async (result) => {
+      toast.success(result.message);
+      await utils.print.getLivePrinterStatuses.invalidate();
+    },
     onError: (error) => toast.error(error.message),
   });
 
   const cancelMutation = trpc.print.cancelPrint.useMutation({
-    onSuccess: (result) => toast.success(result.message),
+    onSuccess: async (result) => {
+      toast.success(result.message);
+      await utils.print.getLivePrinterStatuses.invalidate();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const clearPlateMutation = trpc.print.clearBuildPlate.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.message);
+      await utils.print.getLivePrinterStatuses.invalidate();
+    },
     onError: (error) => toast.error(error.message),
   });
 
@@ -452,6 +479,40 @@ function PrinterDetail({
             </span>
           </div>
         </div>
+
+        {status.awaitingPlateClear && status.bambuddyId != null ? (
+          <div className="flex items-center gap-2 border-t pt-4 bg-amber-500/10 rounded-lg px-3 py-3 border-amber-500/30 border">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                Build plate not cleared
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Remove the print from the build plate before the next job can
+                start.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearPlateMutation.isPending}
+              onClick={() =>
+                clearPlateMutation.mutate({ bambuddyId: status.bambuddyId! })
+              }
+            >
+              {clearPlateMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="mr-2 h-4 w-4" />
+                  Mark Build Plate Cleared
+                </>
+              )}
+            </Button>
+          </div>
+        ) : null}
 
         {canCancel ? (
           <div className="flex items-center gap-2 border-t pt-4">

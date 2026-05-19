@@ -30,6 +30,7 @@ import {
   resumeBambuddyPrint,
   stopBambuddyPrint,
   stopBambuddyCameraStream,
+  clearBambuddyBuildPlate,
   type AMSUnit,
   type BambuddyPrinter,
   type HMSError,
@@ -1054,6 +1055,13 @@ export const printRouter = router({
     .mutation(async ({ input }) => {
       await stopBambuddyCameraStream(input.bambuddyId);
       return { success: true };
+    }),
+
+  clearBuildPlate: userProcedure
+    .input(z.object({ bambuddyId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      await clearBambuddyBuildPlate(input.bambuddyId);
+      return { success: true, message: "Build plate marked as cleared." };
     }),
 
   getPrinterMonitoringOptions: userProcedure
@@ -2082,6 +2090,7 @@ export const printRouter = router({
       let nozzles: { nozzle_type: string; nozzle_diameter: string }[] = [];
       let amsUnits: AMSUnit[] = [];
       let amsExists = false;
+      let awaitingPlateClear = false;
 
       if (s === null) {
         state = "UNREACHABLE";
@@ -2136,6 +2145,7 @@ export const printRouter = router({
         nozzles = s.nozzles ?? [];
         amsUnits = s.ams ?? [];
         amsExists = s.ams_exists ?? false;
+        awaitingPlateClear = s.awaiting_plate_clear ?? false;
         const hmsErrors = s.hms_errors ?? [];
         if (hmsErrors.length > 0) {
           state = "ATTENTION";
@@ -2170,6 +2180,7 @@ export const printRouter = router({
         nozzles,
         ams: amsUnits,
         amsExists,
+        awaitingPlateClear,
         startedBy: job ? { name: job.user.name, email: job.user.email } : null,
         jobStartedAt: job?.createdAt ?? null,
         updatedAt: Date.now(),
@@ -2278,6 +2289,7 @@ export const printRouter = router({
           }[],
           ams: [] as AMSUnit[],
           amsExists: false,
+          awaitingPlateClear: false,
           startedBy: job
             ? { name: job.user.name, email: job.user.email }
             : null,

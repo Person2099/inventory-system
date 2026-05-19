@@ -213,9 +213,7 @@ export function PrintJobModal({
           .filter((f) => {
             const fHex = (f.tray_color ?? "").slice(0, 6).toUpperCase();
             return (
-              fHex === selHex &&
-              f.remain > 0 &&
-              filamentTypeMatches(f.tray_type, reqType)
+              fHex === selHex && filamentTypeMatches(f.tray_type, reqType)
             );
           })
           .map((f) => f.printer_id),
@@ -406,8 +404,8 @@ export function PrintJobModal({
 
   // Color options for a type when targeting a specific printer
   function getPrinterColorsForType(reqType: string) {
-    return availablePrinterSlots.filter(
-      (s) => s.remain > 0 && filamentTypeMatches(s.trayType, reqType),
+    return availablePrinterSlots.filter((s) =>
+      filamentTypeMatches(s.trayType, reqType),
     );
   }
 
@@ -424,7 +422,6 @@ export function PrintJobModal({
   // Deduplicated color options for a type across all compatible printers
   function getMultiPrinterColorsForType(reqType: string) {
     const filtered = multiPrinterFilaments.filter((f) => {
-      if (f.remain <= 0) return false;
       if (!filamentTypeMatches(f.tray_type, reqType)) return false;
       if (possiblePrinterIds !== null && !possiblePrinterIds.has(f.printer_id))
         return false;
@@ -913,7 +910,11 @@ export function PrintJobModal({
                                           )}
                                           <span className="flex-1 text-left min-w-0 overflow-hidden">
                                             <span className="block truncate">
-                                              {name ?? type}
+                                              {subBrands
+                                                ? subBrands
+                                                : idName
+                                                  ? `${idName} - ${type}`
+                                                  : type}
                                             </span>
                                             {subBrands && idName && (
                                               <span className="block truncate text-xs opacity-50 font-mono">
