@@ -20,6 +20,8 @@ import { FilamentUsageChart } from "@/components/print-stats/FilamentUsageChart"
 import { FilamentLeaderboard } from "@/components/print-stats/FilamentLeaderboard";
 import { PrintsByPrinterChart } from "@/components/print-stats/PrintsByPrinterChart";
 import { SuccessRateChart } from "@/components/print-stats/SuccessRateChart";
+import { FilamentByProject } from "@/components/print-stats/FilamentByProject";
+import { FilamentByPerson } from "@/components/print-stats/FilamentByPerson";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -210,6 +212,12 @@ export default function PrintStats() {
         ) : (
           <div className="h-64 rounded-lg bg-muted animate-pulse" />
         )}
+      </div>
+
+      {/* Filament by project + by person row */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <FilamentByProject />
+        <FilamentByPerson />
       </div>
 
       {/* Success Rate + Recent Prints row */}

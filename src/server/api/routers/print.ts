@@ -38,6 +38,7 @@ import {
   getAllCachedStatuses,
   refreshPrintCamCache,
 } from "@/server/lib/printCamPoller";
+import { getActiveProjects } from "@/server/lib/external-api";
 import {
   prusaStatusResponseSchema,
   prusaJobResponseSchema,
@@ -533,6 +534,10 @@ export const printRouter = router({
         orderBy: { createdAt: "desc" },
       });
     }),
+
+  getProjects: userProcedure.query(async () => {
+    return getActiveProjects();
+  }),
 
   getPrinterStatus: userProcedure
     .meta({
@@ -1493,6 +1498,9 @@ export const printRouter = router({
         fileContentBase64: z.string().min(1),
         useAms: z.boolean().optional(),
         amsMapping: z.array(z.number().int().min(-1).max(255)).optional(),
+        notionProjectId: z.string().min(1).nullable().optional(),
+        notionProjectName: z.string().min(1).nullable().optional(),
+        personalUse: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1550,6 +1558,9 @@ export const printRouter = router({
             fileHashSha256: sha256,
             fileSizeBytes: fileBuffer.length,
             status: "STORED",
+            notionProjectId: input.notionProjectId,
+            notionProjectName: input.notionProjectName,
+            personalUse: input.personalUse ?? false,
           },
         });
 
@@ -1664,6 +1675,9 @@ export const printRouter = router({
             fileSizeBytes: fileBuffer.length,
             status: "DISPATCH_FAILED",
             dispatchError: message,
+            notionProjectId: input.notionProjectId,
+            notionProjectName: input.notionProjectName,
+            personalUse: input.personalUse ?? false,
           },
         });
         throw new TRPCError({
@@ -1683,6 +1697,9 @@ export const printRouter = router({
           fileSizeBytes: fileBuffer.length,
           status: "DISPATCHED",
           dispatchResponse: dispatchResult.value.details,
+          notionProjectId: input.notionProjectId,
+          notionProjectName: input.notionProjectName,
+          personalUse: input.personalUse ?? false,
         },
       });
       return { ...job, s3Warning: !s3Succeeded };

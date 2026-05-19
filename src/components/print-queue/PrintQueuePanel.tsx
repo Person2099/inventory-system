@@ -14,6 +14,7 @@ import {
   Printer,
   AlertTriangle,
   Package,
+  FolderOpen,
 } from "lucide-react";
 import { authClient } from "@/auth/client";
 import type { inferRouterOutputs } from "@trpc/server";
@@ -183,6 +184,12 @@ function QueueItemRow({
             <span className="flex items-center gap-1">
               <User className="h-3 w-3" />
               {item.created_by_username}
+            </span>
+          )}
+          {item.notionProjectName && (
+            <span className="flex items-center gap-1">
+              <FolderOpen className="h-3 w-3" />
+              {item.notionProjectName}
             </span>
           )}
         </div>

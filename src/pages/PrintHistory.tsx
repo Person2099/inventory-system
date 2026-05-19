@@ -41,6 +41,8 @@ interface PrintLogRow {
   filamentUsedGrams: number | null;
   thumbnailPath: string | null;
   createdByUsername: string | null;
+  notionProjectName: string | null;
+  personalUse: boolean | null;
   createdAt: string;
 }
 
@@ -131,6 +133,8 @@ export default function PrintHistory() {
     filamentUsedGrams: e.filament_used_grams,
     thumbnailPath: e.thumbnail_path,
     createdByUsername: e.created_by_username,
+    notionProjectName: (e as { notionProjectName?: string | null }).notionProjectName ?? null,
+    personalUse: (e as { personalUse?: boolean | null }).personalUse ?? null,
     createdAt: e.created_at,
   }));
 
@@ -224,6 +228,18 @@ export default function PrintHistory() {
       cell: ({ row }) => (
         <span className="p-2 text-sm text-muted-foreground">
           {row.original.createdByUsername ?? "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "notionProjectName",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Project" />
+      ),
+      cell: ({ row }) => (
+        <span className="p-2 text-sm text-muted-foreground">
+          {row.original.notionProjectName ??
+            (row.original.personalUse ? "Personal use" : "Unknown")}
         </span>
       ),
     },

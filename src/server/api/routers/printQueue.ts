@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { logger as rootLogger } from "@/server/lib/logger";
 import { prisma } from "@/server/lib/prisma";
+import { Prisma } from "@prisma/client";
 import {
   listBambuddyPrinters,
   getBambuddyPrinterStatus,
@@ -62,6 +63,9 @@ const addToQueueInputSchema = z.object({
       timelapse: false,
       flowCali: false,
     })),
+  notionProjectId: z.string().min(1).nullable().optional(),
+  notionProjectName: z.string().min(1).nullable().optional(),
+  personalUse: z.boolean().optional(),
 });
 
 export const printQueueRouter = router({
@@ -175,9 +179,32 @@ export const printQueueRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        return await listQueue({
+        const items = await listQueue({
           printerId: input.printerId,
           status: input.status,
+        });
+
+        const itemIds = items.map((i) => i.id);
+        const submissions = await prisma.printQueueSubmission.findMany({
+          where: { bambuddyQueueItemId: { in: itemIds } },
+          select: {
+            bambuddyQueueItemId: true,
+            notionProjectName: true,
+            user: { select: { name: true } },
+          },
+        });
+        const subByItemId = new Map(
+          submissions.map((s) => [s.bambuddyQueueItemId, s]),
+        );
+
+        return items.map((item) => {
+          const sub = subByItemId.get(item.id);
+          return {
+            ...item,
+            created_by_username:
+              sub?.user.name ?? item.created_by_username ?? null,
+            notionProjectName: sub?.notionProjectName ?? null,
+          };
         });
       } catch (err) {
         logger.error({ err }, "Failed to list queue");
@@ -254,7 +281,8 @@ export const printQueueRouter = router({
             .map((c) => ({
               slot_id: c.slotId!,
               type: c.type!,
-              color: `#${c.colorHex!.replace(/^#/, "").slice(0, 6).toUpperCase()}`,
+              // tray_color is RRGGBBAA — send full 8-char without # to match Bambuddy's AMS format
+              color: c.colorHex!.replace(/^#/, "").toUpperCase(),
               ...(c.colorName ? { color_name: c.colorName } : {}),
               force_color_match: true,
             }));
@@ -291,9 +319,34 @@ export const printQueueRouter = router({
 
       try {
         const result = await addToQueue(queuePayload);
-        await prisma.printQueueSubmission.create({
-          data: { bambuddyQueueItemId: result.id, userId: ctx.user.id },
-        });
+        try {
+          await prisma.printQueueSubmission.create({
+            data: {
+              bambuddyQueueItemId: result.id,
+              bambuddyQueueCreatedAt: result.created_at
+                ? new Date(result.created_at)
+                : null,
+              archiveId: result.archive_id ?? null,
+              archiveName: result.archive_name ?? null,
+              userId: ctx.user.id,
+              notionProjectId: input.notionProjectId,
+              notionProjectName: input.notionProjectName,
+              personalUse: input.personalUse ?? false,
+            },
+          });
+        } catch (dbErr) {
+          if (
+            dbErr instanceof Prisma.PrismaClientKnownRequestError &&
+            dbErr.code === "P2002"
+          ) {
+            logger.warn(
+              { queueItemId: result.id },
+              "PrintQueueSubmission already exists for this queue item (duplicate submit)",
+            );
+          } else {
+            throw dbErr;
+          }
+        }
         logger.info(
           {
             queueItemId: result.id,

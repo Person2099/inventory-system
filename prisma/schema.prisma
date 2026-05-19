@@ -290,11 +290,14 @@ model GcodePrintJob {
     s3Key            String?
     fileHashSha256   String
     fileSizeBytes    Int
-    status           GcodePrintJobStatus @default(STORED)
-    dispatchResponse String?
-    dispatchError    String?
-    createdAt        DateTime            @default(now())
-    updatedAt        DateTime            @updatedAt
+    status            GcodePrintJobStatus @default(STORED)
+    dispatchResponse  String?
+    dispatchError     String?
+    notionProjectId   String?
+    notionProjectName String?
+    personalUse       Boolean             @default(false)
+    createdAt         DateTime            @default(now())
+    updatedAt         DateTime            @updatedAt
 
     @@index([userId])
     @@index([printerId])
@@ -344,14 +347,33 @@ enum AuditAction {
 }
 
 model PrintQueueSubmission {
-    id                  String   @id @default(uuid())
-    bambuddyQueueItemId Int      @unique
-    user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-    userId              String
-    createdAt           DateTime @default(now())
+    id                      String    @id @default(uuid())
+    bambuddyQueueItemId     Int       @unique
+    bambuddyQueueCreatedAt  DateTime?
+    archiveId               Int?
+    archiveName             String?
+    user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    userId                  String
+    notionProjectId         String?
+    notionProjectName       String?
+    personalUse             Boolean   @default(false)
+    createdAt               DateTime  @default(now())
+
+    // Captured when the queue item reaches a terminal state
+    capturedStatus          String?
+    capturedAt              DateTime?
+    capturedStartedAt       DateTime?
+    capturedCompletedAt     DateTime?
+    capturedFilamentGrams   Float?
+    capturedFilamentType    String?
+    capturedFilamentColor   String?
+    capturedPrinterId       Int?
+    capturedPrinterName     String?
 
     @@index([userId])
     @@index([bambuddyQueueItemId])
+    @@index([capturedStatus])
+    @@index([capturedStartedAt, capturedPrinterId])
 }
 
 model AuditLog {

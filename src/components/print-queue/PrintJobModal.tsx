@@ -116,6 +116,10 @@ export function PrintJobModal({
   const [manualStart, setManualStart] = useState(false);
   const [timelapse, setTimelapse] = useState(false);
   const [bedLevelling, setBedLevelling] = useState(true);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+
+  const { data: projects, isLoading: projectsLoading } =
+    trpc.print.getProjects.useQuery(undefined, { enabled: open });
 
   const { data: archives, isLoading: archivesLoading } =
     trpc.printQueue.listArchives.useQuery({ limit: 50 }, { enabled: open });
@@ -240,6 +244,7 @@ export function PrintJobModal({
       setManualStart(false);
       setTimelapse(false);
       setBedLevelling(true);
+      setSelectedProjectId("");
     }
   }, [open]);
 
@@ -304,8 +309,12 @@ export function PrintJobModal({
     }
   }
 
+  const selectedProject = (projects ?? []).find(
+    (p) => p.id === selectedProjectId,
+  );
+
   function handleSubmit() {
-    if (!archiveId || !filamentReqs) return;
+    if (!archiveId || !filamentReqs || !selectedProjectId) return;
 
     // Build per-slot constraints from individual slot selections
     const constraints = filamentReqs
@@ -338,6 +347,9 @@ export function PrintJobModal({
         vibrationCali: true,
         flowCali: false,
       },
+      notionProjectId: selectedProjectId !== "__personal__" ? selectedProjectId : null,
+      notionProjectName: selectedProject?.name ?? null,
+      personalUse: selectedProjectId === "__personal__",
     });
   }
 
@@ -350,6 +362,8 @@ export function PrintJobModal({
         if (targetingMode === "model") return !!selectedModel;
         if (targetingMode === "printer") return selectedPrinterId != null;
         return true;
+      case "options":
+        return selectedProjectId !== "";
       default:
         return true;
     }
@@ -958,6 +972,32 @@ export function PrintJobModal({
         {/* ── Step: options ── */}
         {step === "options" && (
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Project</Label>
+              <Select
+                value={selectedProjectId}
+                onValueChange={setSelectedProjectId}
+                disabled={projectsLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      projectsLoading ? "Loading projects…" : "Select a project"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__personal__">
+                    Personal / No project
+                  </SelectItem>
+                  {(projects ?? []).map((project) => (
+                    <SelectItem value={project.id} key={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <Label>Manual start</Label>
@@ -997,13 +1037,13 @@ export function PrintJobModal({
             <div className="rounded-md border border-border p-3 space-y-2 text-sm">
               <div className="flex justify-between gap-3 min-w-0">
                 <span className="text-muted-foreground shrink-0">Archive</span>
-                <span className="font-medium truncate text-right min-w-0">
+                <span className="font-medium break-words text-right min-w-0">
                   {archiveLabel}
                 </span>
               </div>
               <div className="flex justify-between gap-3 min-w-0">
                 <span className="text-muted-foreground shrink-0">Target</span>
-                <span className="font-medium truncate text-right min-w-0">
+                <span className="font-medium break-words text-right min-w-0">
                   {targetingMode === "any"
                     ? "Any available Bambu printer"
                     : targetingMode === "model"
@@ -1035,7 +1075,7 @@ export function PrintJobModal({
                               hex={sel.colorHex.replace("#", "")}
                               size="sm"
                             />
-                            <span className="truncate">
+                            <span className="break-words min-w-0">
                               {sel.colorName ?? sel.colorHex}
                             </span>
                           </span>
@@ -1051,6 +1091,12 @@ export function PrintJobModal({
               )}
 
               <div className="flex justify-between gap-3 min-w-0 pt-1 border-t border-border/50">
+                <span className="text-muted-foreground shrink-0">Project</span>
+                <span className="font-medium break-words text-right min-w-0">
+                  {selectedProject?.name ?? "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3 min-w-0">
                 <span className="text-muted-foreground shrink-0">
                   Manual start
                 </span>
@@ -1087,7 +1133,7 @@ export function PrintJobModal({
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={addMutation.isPending}
+              disabled={addMutation.isPending || !selectedProject}
             >
               {addMutation.isPending ? "Queuing…" : "Queue print"}
             </Button>

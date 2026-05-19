@@ -22,6 +22,7 @@ import {
     initPrintCamPoller,
     syncBambuPrinters,
 } from "@/server/lib/printCamPoller";
+import { initPrintQueuePoller } from "@/server/lib/printQueuePoller";
 import sharp from "sharp";
 import {
     uploadFile,
@@ -799,6 +800,7 @@ setInterval(
     5 * 60 * 1000,
 );
 initPrintCamPoller();
+initPrintQueuePoller();
 
 export default {
     port: process.env.PORT ?? 3000,

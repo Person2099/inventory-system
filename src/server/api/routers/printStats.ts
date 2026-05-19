@@ -72,22 +72,42 @@ export const printStatsRouter = router({
           offset: input.page * input.pageSize,
         });
 
-        const itemIds = result.items.map((e) => e.id);
+        // Match queue submissions to print log entries using capturedStartedAt
+        // + capturedPrinterId (within a 60s window). This is reliable because
+        // both fields record the exact moment the printer started the job.
+        const MATCH_WINDOW_MS = 60_000;
         const submissions = await prisma.printQueueSubmission.findMany({
-          where: { bambuddyQueueItemId: { in: itemIds } },
-          include: { user: { select: { name: true } } },
+          where: { capturedStartedAt: { not: null } },
+          select: {
+            capturedStartedAt: true,
+            capturedPrinterId: true,
+            notionProjectName: true,
+            personalUse: true,
+            user: { select: { name: true } },
+          },
         });
-        const userByItemId = new Map(
-          submissions.map((s) => [s.bambuddyQueueItemId, s.user.name]),
-        );
 
         return {
           ...result,
-          items: result.items.map((e) => ({
-            ...e,
-            created_by_username:
-              userByItemId.get(e.id) ?? e.created_by_username,
-          })),
+          items: result.items.map((e) => {
+            if (!e.started_at || !e.printer_id) {
+              return { ...e, notionProjectName: null, personalUse: null };
+            }
+            const logStartMs = new Date(e.started_at).getTime();
+            const sub = submissions.find(
+              (s) =>
+                s.capturedPrinterId === e.printer_id &&
+                s.capturedStartedAt !== null &&
+                Math.abs(s.capturedStartedAt.getTime() - logStartMs) <=
+                  MATCH_WINDOW_MS,
+            );
+            return {
+              ...e,
+              created_by_username: sub?.user.name ?? e.created_by_username,
+              notionProjectName: sub?.notionProjectName ?? null,
+              personalUse: sub?.personalUse ?? null,
+            };
+          }),
         };
       } catch (err) {
         logger.error({ err }, "Failed to get print log");
@@ -273,6 +293,123 @@ export const printStatsRouter = router({
       });
     }
   }),
+
+  filamentByProject: userProcedure
+    .input(
+      z.object({
+        days: z.union([
+          z.literal(7),
+          z.literal(30),
+          z.literal(90),
+          z.literal(365),
+          z.literal(0),
+        ]),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        const dateFrom =
+          input.days > 0 ? new Date(Date.now() - input.days * 86400_000) : undefined;
+
+        const submissions = await prisma.printQueueSubmission.findMany({
+          where: {
+            capturedStatus: { in: ["completed", "failed"] },
+            capturedFilamentGrams: { gt: 0 },
+            ...(dateFrom ? { capturedStartedAt: { gte: dateFrom } } : {}),
+          },
+          select: {
+            notionProjectName: true,
+            personalUse: true,
+            capturedFilamentGrams: true,
+          },
+        });
+
+        const byProject = new Map<
+          string,
+          { projectName: string; printCount: number; totalGrams: number }
+        >();
+        for (const sub of submissions) {
+          const projectName = sub.notionProjectName ?? null;
+          const key = projectName ?? (sub.personalUse ? "__personal__" : "__unknown__");
+          const label = projectName ?? (sub.personalUse ? "Personal use" : "Unknown");
+          const grams = sub.capturedFilamentGrams ?? 0;
+          const existing = byProject.get(key);
+          if (existing) {
+            existing.printCount++;
+            existing.totalGrams += grams;
+          } else {
+            byProject.set(key, { projectName: label, printCount: 1, totalGrams: grams });
+          }
+        }
+
+        return [...byProject.values()]
+          .filter((e) => e.totalGrams > 0)
+          .sort((a, b) => b.totalGrams - a.totalGrams);
+      } catch (err) {
+        logger.error({ err }, "Failed to build filament by project");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch filament by project",
+        });
+      }
+    }),
+
+  filamentByPerson: userProcedure
+    .input(
+      z.object({
+        days: z.union([
+          z.literal(7),
+          z.literal(30),
+          z.literal(90),
+          z.literal(365),
+          z.literal(0),
+        ]),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        const dateFrom =
+          input.days > 0 ? new Date(Date.now() - input.days * 86400_000) : undefined;
+
+        const submissions = await prisma.printQueueSubmission.findMany({
+          where: {
+            capturedStatus: { in: ["completed", "failed"] },
+            capturedFilamentGrams: { gt: 0 },
+            ...(dateFrom ? { capturedStartedAt: { gte: dateFrom } } : {}),
+          },
+          select: {
+            capturedFilamentGrams: true,
+            user: { select: { name: true } },
+          },
+        });
+
+        const byPerson = new Map<
+          string,
+          { username: string; printCount: number; totalGrams: number }
+        >();
+        for (const sub of submissions) {
+          const username = sub.user.name ?? "Unknown";
+          const grams = sub.capturedFilamentGrams ?? 0;
+          const existing = byPerson.get(username);
+          if (existing) {
+            existing.printCount++;
+            existing.totalGrams += grams;
+          } else {
+            byPerson.set(username, { username, printCount: 1, totalGrams: grams });
+          }
+        }
+
+        return [...byPerson.values()]
+          .filter((e) => e.totalGrams > 0)
+          .sort((a, b) => b.totalGrams - a.totalGrams);
+      } catch (err) {
+        logger.error({ err }, "Failed to build filament by person");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not fetch filament by person",
+        });
+      }
+    }),
 
   exportAvailable: userProcedure.query(() => {
     return !!(process.env.BAMBUDDY_ENDPOINT && process.env.BAMBUDDY_API_KEY);

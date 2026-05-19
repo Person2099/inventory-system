@@ -479,6 +479,19 @@ export async function addToQueue(
   return res.json() as Promise<PrintQueueItemResponse>;
 }
 
+export async function getQueueItem(
+  itemId: number,
+): Promise<PrintQueueItemResponse | null> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/queue/${itemId}`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 404) return null;
+  await checkResponse(res, "get queue item");
+  return res.json() as Promise<PrintQueueItemResponse>;
+}
+
 export async function cancelQueueItem(itemId: number): Promise<void> {
   const { endpoint, apiKey } = getConfig();
   const res = await fetch(`${endpoint}/api/v1/queue/${itemId}/cancel`, {
