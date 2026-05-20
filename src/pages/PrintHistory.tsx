@@ -153,9 +153,7 @@ export default function PrintHistory() {
         <DataTableColumnHeader column={column} title="Date" />
       ),
       cell: ({ row }) => {
-        const d = new Date(
-          row.original.startedAt ?? row.original.createdAt,
-        );
+        const d = new Date(row.original.startedAt ?? row.original.createdAt);
         return (
           <div className="group relative cursor-default p-2">
             <span className="text-sm text-muted-foreground">
