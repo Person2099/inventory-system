@@ -13,17 +13,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const APP_VERSION = "1.2.0";
 
-type ChangeEntry = {
+interface ChangeEntry {
   type: "new" | "improved" | "fixed";
   text: string;
-};
+}
 
-type VersionEntry = {
+interface VersionEntry {
   version: string;
   date: string;
   title: string;
   changes: ChangeEntry[];
-};
+}
 
 const CHANGELOG: VersionEntry[] = [
   {
