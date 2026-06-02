@@ -291,7 +291,14 @@ function AmsSlotEditDialog({
   const configureMutation = trpc.print.configureAmsSlot.useMutation({
     onSuccess: async (result) => {
       toast.success(result.message);
-      await utils.print.getLivePrinterStatuses.invalidate();
+      await Promise.all([
+        utils.print.getLivePrinterStatuses.invalidate(),
+        utils.printQueue.getPrinterAms.invalidate({
+          printerId: slot.bambuddyId,
+        }),
+        utils.printQueue.getAvailableFilamentsForModel.invalidate(),
+        utils.printQueue.getAvailableFilaments.invalidate(),
+      ]);
       onClose();
     },
     onError: (error) => toast.error(error.message),

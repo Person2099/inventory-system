@@ -188,11 +188,12 @@ model User {
     AuditLogs             AuditLog[]           @relation("AuditActor")
     PrintQueueSubmissions PrintQueueSubmission[]
 
-    role          String    @default("user")
-    banned        Boolean?
-    banReason     String?
-    banExpires    DateTime?
-    studentNumber String?   @unique
+    role             String    @default("user")
+    banned           Boolean?
+    banReason        String?
+    banExpires       DateTime?
+    studentNumber    String?   @unique
+    lastSeenVersion  String?
 
     @@index([email])
     @@index([groupId])

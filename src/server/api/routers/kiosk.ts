@@ -52,7 +52,9 @@ async function resolveUser(studentId: string) {
     throw err;
   }
   const user = await prisma.user.findFirst({
-    where: { email: studentInfo.email },
+    where: {
+      OR: [{ email: studentInfo.email }, { studentNumber: studentId }],
+    },
   });
 
   if (user && !user.studentNumber) {

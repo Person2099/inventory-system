@@ -11,6 +11,7 @@ import {
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { OutageBanner } from "@/components/OutageBanner";
+import { WhatsNewDialog } from "@/components/whats-new/WhatsNewDialog";
 
 interface Location {
   id: string;
@@ -73,6 +74,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <WhatsNewDialog />
       <SidebarProvider>
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">

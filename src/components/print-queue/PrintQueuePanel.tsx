@@ -173,7 +173,16 @@ function QueueItemRow({
               {formatDuration(item.print_time_seconds)}
             </span>
           )}
-          {item.filament_type && (
+          {item.filament_overrides && item.filament_overrides.length > 0 ? (
+            <span className="flex items-center gap-1">
+              <Package className="h-3 w-3" />
+              {item.filament_overrides.map((o, i) => (
+                <span key={i} title={`${o.type} — ${o.color_name}`}>
+                  <ColorSwatch hex={o.color.replace("#", "")} />
+                </span>
+              ))}
+            </span>
+          ) : item.filament_type ? (
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />
               {item.filament_type}
@@ -181,7 +190,7 @@ function QueueItemRow({
                 <ColorSwatch hex={item.filament_color.replace("#", "")} />
               )}
             </span>
-          )}
+          ) : null}
           {item.filament_used_grams != null && (
             <span>{item.filament_used_grams.toFixed(1)}g</span>
           )}

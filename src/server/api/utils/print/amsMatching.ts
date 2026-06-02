@@ -54,7 +54,9 @@ function colorMatches(
 
 function typeMatches(slotType: string | null, constraintType: string): boolean {
   if (!slotType) return false;
-  return slotType.toUpperCase() === constraintType.toUpperCase();
+  const a = slotType.toUpperCase();
+  const b = constraintType.toUpperCase();
+  return a === b || a.startsWith(b + " ") || b.startsWith(a + " ");
 }
 
 /**

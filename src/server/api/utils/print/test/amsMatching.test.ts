@@ -122,6 +122,47 @@ describe("matchFilaments", () => {
     expect(result[0].matched).toBe(false);
     expect(result[0].slot).toBeNull();
   });
+
+  it("matches when slot type is a prefix of constraint type (e.g. 'PLA' matches 'PLA Basic')", () => {
+    const prefixAms = makeAms([
+      {
+        id: 0,
+        trays: [{ id: 0, type: "PLA Basic", color: "FF0000FF", remain: 80 }],
+      },
+    ]);
+    const prefixSlots = buildAmsSlots(prefixAms);
+    const constraints: FilamentConstraint[] = [{ slotIndex: 0, type: "PLA" }];
+    const result = matchFilaments(constraints, prefixSlots);
+    expect(result[0].matched).toBe(true);
+  });
+
+  it("matches when constraint type is a prefix of slot type (e.g. 'PLA Basic' matches 'PLA')", () => {
+    const prefixAms = makeAms([
+      {
+        id: 0,
+        trays: [{ id: 0, type: "PLA", color: "FF0000FF", remain: 80 }],
+      },
+    ]);
+    const prefixSlots = buildAmsSlots(prefixAms);
+    const constraints: FilamentConstraint[] = [
+      { slotIndex: 0, type: "PLA Basic" },
+    ];
+    const result = matchFilaments(constraints, prefixSlots);
+    expect(result[0].matched).toBe(true);
+  });
+
+  it("does not match when types share a prefix but neither is a prefix of the other (e.g. 'PETG' vs 'PET')", () => {
+    const prefixAms = makeAms([
+      {
+        id: 0,
+        trays: [{ id: 0, type: "PETG", color: "00FF00FF", remain: 80 }],
+      },
+    ]);
+    const prefixSlots = buildAmsSlots(prefixAms);
+    const constraints: FilamentConstraint[] = [{ slotIndex: 0, type: "PET" }];
+    const result = matchFilaments(constraints, prefixSlots);
+    expect(result[0].matched).toBe(false);
+  });
 });
 
 describe("buildAmsMapping", () => {
