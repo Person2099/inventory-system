@@ -32,6 +32,7 @@ import {
     downloadFile,
 } from "@/server/lib/s3";
 import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
+import { mountTamarinRoutes } from "@/server/lib/tamarin";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -683,6 +684,9 @@ app.post("/api/print-queue/upload-3mf", async (c) => {
         });
     }
 });
+
+// ─── Tamarin SDK routes (Notion + Discord) ───────────────────────────────────
+mountTamarinRoutes(app);
 
 // MCP route
 const mcpPassword = process.env.MCP_PASSWORD;
