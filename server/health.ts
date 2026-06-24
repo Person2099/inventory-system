@@ -90,14 +90,13 @@ async function checkBambBuddy(): Promise<ComponentResult> {
     }
 }
 
-async function checkStudentApi(): Promise<ComponentResult> {
-    const base = process.env.STUDENT_API_BASE;
-    const key = process.env.STUDENT_API_KEY;
+async function checkNotion(): Promise<ComponentResult> {
+    const token = process.env.NOTION_TOKEN;
 
-    if (!base) {
+    if (!token) {
         return {
-            id: "student-api",
-            name: "Student API",
+            id: "notion",
+            name: "Notion",
             status: "degraded_performance",
             group: false,
             description: "Not configured",
@@ -106,24 +105,27 @@ async function checkStudentApi(): Promise<ComponentResult> {
 
     try {
         const res = await withTimeout(
-            fetch(`${base}/health`, {
-                headers: key ? { Authorization: `Bearer ${key}` } : {},
+            fetch("https://api.notion.com/v1/users/me", {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Notion-Version": "2022-06-28",
+                },
                 signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
             }),
             CHECK_TIMEOUT_MS,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return {
-            id: "student-api",
-            name: "Student API",
+            id: "notion",
+            name: "Notion",
             status: "operational",
             group: false,
             description: "",
         };
     } catch {
         return {
-            id: "student-api",
-            name: "Student API",
+            id: "notion",
+            name: "Notion",
             status: "major_outage",
             group: false,
             description: "Unreachable",
@@ -187,7 +189,7 @@ async function runChecks(): Promise<ComponentResult[]> {
     return Promise.all([
         checkDatabase(),
         checkBambBuddy(),
-        checkStudentApi(),
+        checkNotion(),
         checkS3(),
     ]);
 }

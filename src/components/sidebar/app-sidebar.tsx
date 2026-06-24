@@ -7,8 +7,6 @@ import {
   Box,
   Settings,
   Home,
-  PackageOpen,
-  ArrowLeftRight,
   ShoppingCartIcon,
   ArrowRightToLine,
   MessageCircle,
@@ -18,6 +16,7 @@ import {
   ClipboardList,
   FileText,
   ScrollText,
+  Users,
   ChevronDown,
   ListOrdered,
   BarChart2,
@@ -44,9 +43,8 @@ import { cn } from "@/lib/utils";
 const coreItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Assets", url: "/assets", icon: Box },
-  { title: "Consumables", url: "/consumables", icon: PackageOpen },
   { title: "Check-in", url: "/checkin", icon: ArrowRightToLine },
-  { title: "Transactions", url: "/transactions", icon: ArrowLeftRight },
+  { title: "Activity", url: "/activity", icon: ScrollText },
   { title: "Chat", url: "/chat", icon: MessageCircle },
 ];
 
@@ -196,11 +194,11 @@ export function AppSidebar() {
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
                           <a
-                            onClick={() => void navigate("/audit-log")}
+                            onClick={() => void navigate("/members")}
                             className="flex items-center gap-2"
                           >
-                            <ScrollText />
-                            <span>Audit Log</span>
+                            <Users />
+                            <span>Members</span>
                           </a>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

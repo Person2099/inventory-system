@@ -6,8 +6,10 @@ import { prisma } from "@/server/lib/prisma";
 import { Prisma } from "@prisma/client";
 import {
   listBambuddyPrinters,
+  listBambuddyPrinterStatuses,
   getBambuddyPrinterStatus,
   listQueue,
+  getQueueItem,
   addToQueue,
   cancelQueueItem,
   deleteQueueItem,
@@ -18,6 +20,8 @@ import {
   getAllAvailableFilaments,
   listBambuddyArchives,
   updateQueueItem,
+  getInventoryAssignments,
+  updateSpoolWeightUsed,
   BambuddyError,
   type FilamentOverride,
 } from "@/server/lib/bambuddy";
@@ -100,6 +104,23 @@ export const printQueueRouter = router({
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
         message: "Could not fetch printers",
+      });
+    }
+  }),
+
+  listPrinterConnectivity: userProcedure.query(async () => {
+    try {
+      const statuses = await listBambuddyPrinterStatuses();
+      return statuses.map((s) => ({
+        id: s.id,
+        name: s.name,
+        connected: s.connected,
+      }));
+    } catch (err) {
+      logger.error({ err }, "Failed to fetch printer connectivity");
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Could not fetch printer connectivity",
       });
     }
   }),
@@ -212,6 +233,7 @@ export const printQueueRouter = router({
           select: {
             bambuddyQueueItemId: true,
             notionProjectName: true,
+            personalUse: true,
             user: { select: { name: true } },
           },
         });
@@ -226,6 +248,7 @@ export const printQueueRouter = router({
             created_by_username:
               sub?.user.name ?? item.created_by_username ?? null,
             notionProjectName: sub?.notionProjectName ?? null,
+            personalUse: sub?.personalUse ?? false,
           };
         });
       } catch (err) {
@@ -494,5 +517,159 @@ export const printQueueRouter = router({
           message: "Could not stop queue item",
         });
       }
+    }),
+
+  getFilamentShortInfo: userProcedure
+    .input(z.object({ itemId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const item = await getQueueItem(input.itemId).catch(() => null);
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Queue item not found",
+        });
+      }
+
+      if (ctx.user.role !== "admin") {
+        const submission = await prisma.printQueueSubmission.findFirst({
+          where: { bambuddyQueueItemId: input.itemId, userId: ctx.user.id },
+          select: { userId: true },
+        });
+        if (!submission) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the person who submitted this print can override the filament check. Ask them to press 'Start anyway' from their account.",
+          });
+        }
+      }
+
+      if (!item.printer_id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "No printer is assigned to this job yet — cannot resolve filament shortage.",
+        });
+      }
+
+      const requiredGrams = item.filament_used_grams ?? 0;
+      const filamentType = item.filament_type?.toUpperCase() ?? null;
+
+      // Normalise a hex color to 6 uppercase chars, no #
+      function normalizeHex(hex: string | null | undefined): string | null {
+        if (!hex) return null;
+        return hex.replace(/^#/, "").slice(0, 6).toUpperCase();
+      }
+
+      // Prefer filament_overrides color, fall back to filament_color
+      const targetColorHex = normalizeHex(
+        item.filament_overrides?.[0]?.color ?? item.filament_color,
+      );
+
+      const printers = await listBambuddyPrinters();
+      const printer = printers.find((p) => p.id === item.printer_id);
+      const printerName = printer?.name ?? `Printer #${item.printer_id}`;
+
+      const assignments = await getInventoryAssignments(item.printer_id);
+
+      const slots = assignments
+        .filter((a) => a.spool != null)
+        .map((a) => ({
+          spoolId: a.spool!.id,
+          amsId: a.ams_id,
+          trayId: a.tray_id,
+          material: a.spool!.material,
+          colorName: a.spool!.color_name ?? null,
+          colorHex: normalizeHex(a.spool!.rgba),
+          remaining: a.spool!.label_weight - a.spool!.weight_used,
+        }));
+
+      // Find a slot matching both type and color
+      const match = slots.find((s) => {
+        const typeMatch =
+          !filamentType || s.material.toUpperCase() === filamentType;
+        const colorMatch = !targetColorHex || s.colorHex === targetColorHex;
+        return typeMatch && colorMatch;
+      });
+
+      if (match) {
+        return {
+          status: "found" as const,
+          printerId: item.printer_id,
+          printerName,
+          spoolId: match.spoolId,
+          filamentType: match.material,
+          colorName: match.colorName,
+          colorHex: match.colorHex,
+          remaining: match.remaining,
+          required: requiredGrams,
+        };
+      }
+
+      // No match — return all slots for manual selection
+      return {
+        status: "no_match" as const,
+        printerId: item.printer_id,
+        printerName,
+        filamentType,
+        filamentColor: targetColorHex,
+        required: requiredGrams,
+        slots,
+      };
+    }),
+
+  overrideFilamentShort: userProcedure
+    .input(
+      z.object({
+        itemId: z.number().int().positive(),
+        printerId: z.number().int().positive(),
+        spoolId: z.number().int().positive(),
+        requiredGrams: z.number().min(0),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { itemId, printerId, spoolId, requiredGrams } = input;
+
+      if (ctx.user.role !== "admin") {
+        const submission = await prisma.printQueueSubmission.findFirst({
+          where: { bambuddyQueueItemId: itemId, userId: ctx.user.id },
+          select: { userId: true },
+        });
+        if (!submission) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the person who submitted this print can override the filament check. Ask them to press 'Start anyway' from their account.",
+          });
+        }
+      }
+
+      // Fetch current spool to compute new weight_used
+      const assignments = await getInventoryAssignments(printerId).catch(
+        () => [],
+      );
+      const assignment = assignments.find((a) => a.spool?.id === spoolId);
+      const spool = assignment?.spool;
+      if (!spool) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Spool not found on that printer",
+        });
+      }
+
+      // Set weight_used so remaining = requiredGrams (just enough to pass the check)
+      const newWeightUsed = Math.max(0, spool.label_weight - requiredGrams);
+      await updateSpoolWeightUsed(spoolId, newWeightUsed);
+
+      // Reassign queue item to this printer if it differs
+      const item = await getQueueItem(itemId).catch(() => null);
+      if (item && item.printer_id !== printerId) {
+        await updateQueueItem(itemId, { printer_id: printerId });
+      }
+
+      logger.info(
+        { itemId, printerId, spoolId, newWeightUsed, userId: ctx.user.id },
+        "Filament short override applied",
+      );
     }),
 });

@@ -17,6 +17,32 @@ function headers(apiKey: string): Record<string, string> {
   return { "X-API-Key": apiKey };
 }
 
+async function loginForBearer(): Promise<string> {
+  const endpoint = process.env.BAMBUDDY_ENDPOINT?.replace(/\/$/, "");
+  const username = process.env.BAMBUDDY_USERNAME;
+  const password = process.env.BAMBUDDY_PASSWORD;
+  if (!endpoint || !username || !password) {
+    throw new Error(
+      "BAMBUDDY_ENDPOINT, BAMBUDDY_USERNAME, and BAMBUDDY_PASSWORD must be set for file uploads.",
+    );
+  }
+  const res = await fetch(`${endpoint}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`BamBuddy login failed (HTTP ${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error("BamBuddy login response missing access_token");
+  }
+  return data.access_token;
+}
+
 interface BambuddyFilamentDeficit {
   slot_id: number;
   ams_id: number;
@@ -238,7 +264,8 @@ export async function uploadArchive(
   filename: string,
   fileBuffer: Buffer,
 ): Promise<number> {
-  const { endpoint, apiKey } = getConfig();
+  const { endpoint } = getConfig();
+  const bearer = await loginForBearer();
 
   const tmpPath = join(tmpdir(), `bambuddy_upload_${Date.now()}_${filename}`);
   await writeFile(tmpPath, fileBuffer);
@@ -255,7 +282,7 @@ export async function uploadArchive(
 
     const res = await fetch(`${endpoint}/api/v1/archives/upload`, {
       method: "POST",
-      headers: headers(apiKey),
+      headers: { Authorization: `Bearer ${bearer}` },
       body: form,
       signal: AbortSignal.timeout(120_000),
     });
@@ -527,21 +554,39 @@ export interface BambuddyArchive {
 
 // ─── Queue API ────────────────────────────────────────────────────────────────
 
+// In-flight coalescing for listQueue: concurrent callers with the same params
+// share a single HTTP request instead of hammering Bambuddy in parallel.
+const listQueueInflight = new Map<string, Promise<PrintQueueItemResponse[]>>();
+
 export async function listQueue(opts?: {
   printerId?: number;
   status?: string;
 }): Promise<PrintQueueItemResponse[]> {
+  const cacheKey = `${opts?.printerId ?? ""}:${opts?.status ?? ""}`;
+
+  const existing = listQueueInflight.get(cacheKey);
+  if (existing) return existing;
+
   const { endpoint, apiKey } = getConfig();
   const params = new URLSearchParams();
   if (opts?.printerId != null) params.set("printer_id", String(opts.printerId));
   if (opts?.status) params.set("status", opts.status);
   const qs = params.toString();
-  const res = await fetch(`${endpoint}/api/v1/queue/${qs ? `?${qs}` : ""}`, {
+
+  const promise = fetch(`${endpoint}/api/v1/queue/${qs ? `?${qs}` : ""}`, {
     headers: headers(apiKey),
     signal: AbortSignal.timeout(10_000),
-  });
-  await checkResponse(res, "list queue");
-  return res.json() as Promise<PrintQueueItemResponse[]>;
+  })
+    .then(async (res) => {
+      await checkResponse(res, "list queue");
+      return res.json() as Promise<PrintQueueItemResponse[]>;
+    })
+    .finally(() => {
+      listQueueInflight.delete(cacheKey);
+    });
+
+  listQueueInflight.set(cacheKey, promise);
+  return promise;
 }
 
 export async function addToQueue(
@@ -729,15 +774,27 @@ export async function getBambuddyPrometheusMetrics(): Promise<string> {
   return res.text();
 }
 
+// In-flight coalescing for listBambuddyPrinterStatuses
+let listPrinterStatusesInflight: Promise<BambuddyPrinterStatus[]> | null = null;
+
 /** Fetch status for all BamBuddy printers in parallel. Failed individual lookups are skipped. */
 export async function listBambuddyPrinterStatuses(): Promise<
   BambuddyPrinterStatus[]
 > {
-  const printers = await listBambuddyPrinters();
-  const results = await Promise.allSettled(
-    printers.map((p) => getBambuddyPrinterStatus(p.id)),
-  );
-  return results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  if (listPrinterStatusesInflight) return listPrinterStatusesInflight;
+
+  const promise = (async () => {
+    const printers = await listBambuddyPrinters();
+    const results = await Promise.allSettled(
+      printers.map((p) => getBambuddyPrinterStatus(p.id)),
+    );
+    return results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  })().finally(() => {
+    listPrinterStatusesInflight = null;
+  });
+
+  listPrinterStatusesInflight = promise;
+  return promise;
 }
 
 // ─── Print Stats Types ────────────────────────────────────────────────────────
