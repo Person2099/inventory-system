@@ -4,6 +4,7 @@ import Consumables from "@/pages/Consumables";
 import ConsumableRequests from "@/pages/ConsumableRequests";
 import MyRequests from "@/pages/MyRequests";
 import AuditLog from "@/pages/AuditLog";
+import Members from "@/pages/Members";
 import Dashboard from "@/pages/Dashboard";
 import Cart from "@/pages/Cart";
 import AuthPage from "@/auth/page.tsx";
@@ -77,6 +78,7 @@ const App = () => {
                 <Route path="/consumables/*" element={<Consumables />} />
                 <Route path="/my-requests" element={<MyRequests />} />
                 <Route path="/audit-log" element={<AuditLog />} />
+                <Route path="/members" element={<Members />} />
                 <Route path="/cart" element={<Cart />} />
                 <Route path="/item/:id" element={<ItemDetails />} />
                 <Route path="/qr/*" element={<QR />} />

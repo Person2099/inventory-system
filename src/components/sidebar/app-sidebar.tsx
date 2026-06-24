@@ -18,6 +18,7 @@ import {
   ClipboardList,
   FileText,
   ScrollText,
+  Users,
   ChevronDown,
   ListOrdered,
   BarChart2,
@@ -201,6 +202,17 @@ export function AppSidebar() {
                           >
                             <ScrollText />
                             <span>Audit Log</span>
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <a
+                            onClick={() => void navigate("/members")}
+                            className="flex items-center gap-2"
+                          >
+                            <Users />
+                            <span>Members</span>
                           </a>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

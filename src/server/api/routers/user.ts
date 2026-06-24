@@ -64,6 +64,70 @@ export const userRouter = router({
       });
     }),
 
+  members: adminProcedure.query(async () => {
+    return prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        emailVerified: true,
+        image: true,
+        role: true,
+        banned: true,
+        banReason: true,
+        banExpires: true,
+        studentNumber: true,
+        group: { select: { id: true, name: true } },
+        sessions: {
+          orderBy: { updatedAt: "desc" },
+          take: 1,
+          select: { updatedAt: true },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+  }),
+
+  ban: adminProcedure
+    .input(
+      z.object({
+        id: z.uuid(),
+        reason: z.string().optional(),
+        expiresAt: z.string().datetime().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return prisma.user.update({
+        where: { id: input.id },
+        data: {
+          banned: true,
+          banReason: input.reason ?? null,
+          banExpires: input.expiresAt ? new Date(input.expiresAt) : null,
+        },
+      });
+    }),
+
+  unban: adminProcedure
+    .input(z.object({ id: z.uuid() }))
+    .mutation(async ({ input }) => {
+      return prisma.user.update({
+        where: { id: input.id },
+        data: { banned: false, banReason: null, banExpires: null },
+      });
+    }),
+
+  setRole: adminProcedure
+    .input(z.object({ id: z.uuid(), role: z.enum(["user", "admin"]) }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.id === ctx.user.id) {
+        throw new Error("Cannot change your own role");
+      }
+      return prisma.user.update({
+        where: { id: input.id },
+        data: { role: input.role },
+      });
+    }),
+
   getSelf: userProcedure.query(async ({ ctx }) => {
     return prisma.user.findUnique({
       where: { id: ctx.user.id },
