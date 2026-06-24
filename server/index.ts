@@ -34,6 +34,7 @@ import {
 } from "@/server/lib/s3";
 import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
 import { mountTamarinRoutes } from "@/server/lib/tamarin";
+import { mountExternalApiRoutes } from "./external-api";
 import { startMemberSyncScheduler } from "@/server/lib/member-sync";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -778,6 +779,9 @@ app.post("/api/print-queue/upload-3mf", async (c) => {
 
 // ─── Tamarin SDK routes (Notion + Discord) ───────────────────────────────────
 mountTamarinRoutes(app);
+
+// ─── External FYP API routes ─────────────────────────────────────────────────
+mountExternalApiRoutes(app);
 
 // ─── Member sync scheduler ────────────────────────────────────────────────────
 // Syncs name/studentNumber from Notion member DB into user accounts hourly.
