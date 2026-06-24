@@ -27,11 +27,15 @@ import sharp from "sharp";
 import {
     uploadFile,
     buildItemImageKey,
+    buildAvatarKey,
     deleteFile,
     fileExists,
     downloadFile,
 } from "@/server/lib/s3";
 import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
+import { mountTamarinRoutes } from "@/server/lib/tamarin";
+import { mountExternalApiRoutes } from "./external-api";
+import { startMemberSyncScheduler } from "@/server/lib/member-sync";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -348,6 +352,95 @@ app.delete("/api/items/:id/image", async (c) => {
     });
 
     return c.json({ ok: true });
+});
+
+// ─── User avatar upload ───────────────────────────────────────────────────────
+app.post("/api/users/me/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get("avatar");
+    if (!(file instanceof File)) {
+        throw new HTTPException(400, { message: "Missing avatar field" });
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+        throw new HTTPException(400, {
+            message: "Unsupported image type. Use JPEG, PNG, or WebP.",
+        });
+    }
+
+    const rawBytes = await file.arrayBuffer();
+    if (rawBytes.byteLength > MAX_IMAGE_BYTES) {
+        throw new HTTPException(413, { message: "Image exceeds 10 MB limit" });
+    }
+
+    const webpBuffer = await sharp(Buffer.from(rawBytes))
+        .rotate()
+        .resize({ width: 256, height: 256, fit: "cover" })
+        .webp({ quality: 85 })
+        .toBuffer();
+
+    const userId = session.user.id;
+    const key = buildAvatarKey(userId);
+
+    // Delete existing avatar if present before overwriting
+    const exists = await fileExists(key);
+    if (exists) await deleteFile(key);
+
+    await uploadFile(key, webpBuffer, "image/webp");
+
+    await prisma.user.update({
+        where: { id: userId },
+        data: { image: key },
+    });
+
+    return c.json({ ok: true });
+});
+
+// ─── User avatar delete ───────────────────────────────────────────────────────
+app.delete("/api/users/me/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const userId = session.user.id;
+    const key = buildAvatarKey(userId);
+    const exists = await fileExists(key);
+    if (exists) await deleteFile(key);
+
+    await prisma.user.update({
+        where: { id: userId },
+        data: { image: null },
+    });
+
+    return c.json({ ok: true });
+});
+
+// ─── User avatar proxy ────────────────────────────────────────────────────────
+app.get("/api/users/:id/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const userId = c.req.param("id");
+    const key = buildAvatarKey(userId);
+    const exists = await fileExists(key);
+    if (!exists) {
+        throw new HTTPException(404, { message: "No avatar" });
+    }
+
+    const bytes = await downloadFile(key);
+    return new Response(bytes, {
+        headers: {
+            "Content-Type": "image/webp",
+            "Cache-Control": "private, max-age=300",
+        },
+    });
 });
 
 // ─── Webcam proxy ────────────────────────────────────────────────────────────
@@ -683,6 +776,17 @@ app.post("/api/print-queue/upload-3mf", async (c) => {
         });
     }
 });
+
+// ─── Tamarin SDK routes (Notion + Discord) ───────────────────────────────────
+mountTamarinRoutes(app);
+
+// ─── External FYP API routes ─────────────────────────────────────────────────
+mountExternalApiRoutes(app);
+
+// ─── Member sync scheduler ────────────────────────────────────────────────────
+// Syncs name/studentNumber from Notion member DB into user accounts hourly.
+// No-ops if Tamarin (Notion) is not configured.
+startMemberSyncScheduler();
 
 // MCP route
 const mcpPassword = process.env.MCP_PASSWORD;

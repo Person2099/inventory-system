@@ -8,7 +8,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +26,7 @@ interface AddDialogProps {
 
 export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isConsumable, setIsConsumable] = useState(defaultConsumable);
+  const [isConsumable] = useState(defaultConsumable);
   const [serialExpanded, setSerialExpanded] = useState(false);
   const [overrideSerial, setOverrideSerial] = useState<string | null>(null);
   const [serialInput, setSerialInput] = useState("");
@@ -112,15 +111,6 @@ export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
           <DialogTitle>Add an item</DialogTitle>
           <DialogDescription>Add an item to the system.</DialogDescription>
         </DialogHeader>
-        <div className="flex items-center space-x-2">
-          <Switch
-            checked={isConsumable}
-            onCheckedChange={(value) => {
-              setIsConsumable(value);
-            }}
-          />
-          <Label htmlFor="isConsumable">Consumable</Label>
-        </div>
 
         {isConsumable ? (
           <AddConsumableForm createItem={createItem} />

@@ -18,6 +18,7 @@ export const itemCheckin = async (
   ctx: string,
   cart: CartItem[],
   performedByUserId?: string,
+  notes?: string,
 ) => {
   try {
     const validCart = await validateCart(cart);
@@ -39,7 +40,7 @@ export const itemCheckin = async (
 
     await prisma.$transaction(async (tx) => {
       const items = assets as CartObject[];
-      await createItemRecords(tx, ctx, items, performedByUserId);
+      await createItemRecords(tx, ctx, items, performedByUserId, notes);
     });
 
     return {
@@ -91,6 +92,7 @@ const createItemRecords = async (
   ctx: string,
   items: CartObject[],
   performedByUserId?: string,
+  notes?: string,
 ) => {
   const itemRecordData = items.map((item) => ({
     loaned: false,
@@ -98,6 +100,7 @@ const createItemRecords = async (
     itemId: item.uuid,
     quantity: item.checkedQuantity,
     performedByUserId: performedByUserId ?? null,
+    ...(notes ? { notes } : {}),
   }));
 
   await tx.itemRecord.createMany({

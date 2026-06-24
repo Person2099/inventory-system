@@ -17,14 +17,56 @@ import {
   Package,
   FolderOpen,
   SkipForward,
+  Wrench,
 } from "lucide-react";
 import { authClient } from "@/auth/client";
+import { useState, useEffect } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 
 type QueueItem =
   inferRouterOutputs<AppRouter>["printQueue"]["listQueue"][number];
 type QueueStatus = QueueItem["status"];
+
+function humaniseWaitingReason(
+  raw: string,
+  filamentOverrides?: QueueItem["filament_overrides"],
+): string {
+  const s = raw.toLowerCase();
+  if (
+    s.includes("color") ||
+    s.includes("colour") ||
+    s.includes("colour_match") ||
+    s.includes("color_match")
+  ) {
+    const colours =
+      filamentOverrides && filamentOverrides.length > 0
+        ? filamentOverrides
+            .map((o) => o.color_name ?? o.color)
+            .filter(Boolean)
+            .join(", ")
+        : null;
+    return colours
+      ? `Waiting for a printer with ${colours} loaded to become available. The job will start automatically once a compatible printer is free.`
+      : "Waiting for a printer with matching filament colours to become available. The job will start automatically once a compatible printer is free.";
+  }
+  if (s.includes("plate") || s.includes("clear"))
+    return "Waiting for the build plate to be cleared. Collect the previous print from the printer, then mark the plate as cleared in Printer Monitoring.";
+  if (
+    s.includes("no_printer") ||
+    s.includes("no printer") ||
+    s.includes("unavailable")
+  )
+    return "No compatible printer is currently available. The job will start automatically when one becomes free.";
+  if (s.includes("filament") || s.includes("spool"))
+    return "Waiting for the required filament type to be loaded on a printer. Load the correct spool and the job will start automatically.";
+  if (s.includes("manual"))
+    return "This print is held for manual start. A staff member must press the play button to begin.";
+  if (s.includes("scheduled"))
+    return "This print is scheduled for a future time and will start automatically when the scheduled time is reached.";
+  // Return the raw reason with a prefix if none of the patterns match
+  return `On hold: ${raw}`;
+}
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pending: {
@@ -75,20 +117,30 @@ function ColorSwatch({ hex }: { hex: string }) {
   );
 }
 
+interface PrinterConnectivity {
+  id: number;
+  name: string;
+  connected: boolean;
+}
+
 function QueueItemRow({
   item,
   isAdmin,
+  connectivity,
   onStart,
   onStop,
   onCancel,
   onDelete,
+  onResolveFilamentShort,
 }: {
   item: QueueItem;
   isAdmin: boolean;
+  connectivity: PrinterConnectivity[];
   onStart: (id: number) => void;
   onStop: (id: number) => void;
   onCancel: (id: number) => void;
   onDelete: (id: number) => void;
+  onResolveFilamentShort: (id: number) => void;
 }) {
   const status = item.status?.toLowerCase() as QueueStatus;
   const statusConfig = STATUS_CONFIG[status] ?? {
@@ -101,6 +153,12 @@ function QueueItemRow({
   const isTerminal = ["completed", "failed", "cancelled", "skipped"].includes(
     status,
   );
+
+  const offlinePrinter =
+    isPending && item.printer_id != null
+      ? (connectivity.find((c) => c.id === item.printer_id && !c.connected) ??
+        null)
+      : null;
 
   const displayName =
     item.archive_name ??
@@ -148,7 +206,7 @@ function QueueItemRow({
               variant="outline"
               className="text-xs shrink-0 border-amber-400/60 text-amber-600 dark:text-amber-400"
             >
-              manual
+              Held — manual start
             </Badge>
           )}
           {item.timelapse && (
@@ -202,12 +260,11 @@ function QueueItemRow({
               {item.created_by_username}
             </span>
           )}
-          {item.notionProjectName && (
-            <span className="flex items-center gap-1">
-              <FolderOpen className="h-3 w-3" />
-              {item.notionProjectName}
-            </span>
-          )}
+          <span className="flex items-center gap-1">
+            <FolderOpen className="h-3 w-3" />
+            {item.notionProjectName ??
+              (item.personalUse ? "Personal use" : "—")}
+          </span>
           {item.scheduled_time && (
             <span className="flex items-center gap-1">
               <CalendarClock className="h-3 w-3" />
@@ -220,26 +277,88 @@ function QueueItemRow({
           {item.been_jumped && (
             <span className="flex items-center gap-1 text-orange-500 dark:text-orange-400">
               <SkipForward className="h-3 w-3" />
-              skipped over
+              Skipped — waiting for compatible printer
             </span>
           )}
         </div>
 
-        {/* Deleted archive warning */}
-        {item.archive_deleted && (
-          <div className="flex items-center gap-1.5 text-xs text-destructive">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span>File has been deleted — print will fail</span>
+        {/* Deleted archive warning — only actionable on pending */}
+        {item.archive_deleted && isPending && (
+          <div className="flex items-start gap-1.5 text-xs text-destructive">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+            <span>
+              The print file has been deleted from Bambuddy and this job will
+              fail when dispatched. Cancel this job and re-queue with a valid
+              file.
+            </span>
           </div>
         )}
 
-        {/* Waiting reason */}
-        {(item.waiting_reason || item.filament_short) && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
+        {/* Offline printer */}
+        {offlinePrinter && (
+          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
             <span>
-              {item.waiting_reason ??
-                "Insufficient filament for the assigned spool"}
+              <strong>{offlinePrinter.name}</strong> is currently offline. This
+              job will start automatically once the printer reconnects.
+            </span>
+          </div>
+        )}
+
+        {/* Manual start explanation */}
+        {item.manual_start &&
+          isPending &&
+          !item.waiting_reason &&
+          !item.filament_short && (
+            <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+              <span>
+                This print is held for manual start. A staff member must press
+                the play button to begin.
+              </span>
+            </div>
+          )}
+
+        {/* Waiting reason */}
+        {item.waiting_reason && isPending && (
+          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+            <span>
+              {humaniseWaitingReason(
+                item.waiting_reason,
+                item.filament_overrides ?? undefined,
+              )}
+            </span>
+          </div>
+        )}
+
+        {/* Filament short */}
+        {item.filament_short && isPending && !item.waiting_reason && (
+          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+            <span className="flex-1">
+              Not enough filament on the assigned spool to complete this print.
+              Replace or top up the spool, then the job will start
+              automatically.
+            </span>
+            <button
+              className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 transition-colors"
+              onClick={() => onResolveFilamentShort(item.id)}
+            >
+              <Wrench className="h-2.5 w-2.5" />
+              Start anyway
+            </button>
+          </div>
+        )}
+
+        {/* Been jumped explanation */}
+        {item.been_jumped && isPending && (
+          <div className="flex items-start gap-1.5 text-xs text-orange-600 dark:text-orange-400">
+            <SkipForward className="h-3 w-3 shrink-0 mt-px" />
+            <span>
+              Jobs ahead in the queue could not run on the required printer, so
+              this job was skipped over. It will start as soon as a compatible
+              printer becomes available.
             </span>
           </div>
         )}
@@ -303,6 +422,146 @@ function QueueItemRow({
   );
 }
 
+type FilamentShortInfo =
+  inferRouterOutputs<AppRouter>["printQueue"]["getFilamentShortInfo"];
+
+interface FilamentShortDialog {
+  itemId: number;
+  info: FilamentShortInfo;
+}
+
+function FilamentShortDialogContent({
+  dialog,
+  isPending,
+  onConfirm,
+  onClose,
+}: {
+  dialog: FilamentShortDialog;
+  isPending: boolean;
+  onConfirm: (spoolId: number) => void;
+  onClose: () => void;
+}) {
+  const [selectedSpoolId, setSelectedSpoolId] = useState<number | null>(null);
+  const info = dialog.info;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-background border border-border rounded-lg shadow-xl p-5 max-w-sm w-full mx-4 space-y-4">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-px" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm">
+              {info.status === "found"
+                ? "Confirm filament override"
+                : "Select AMS slot"}
+            </p>
+
+            {info.status === "found" && (
+              <>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <strong>{info.printerName}</strong> has a matching{" "}
+                  {info.colorName ? (
+                    <>
+                      <span className="inline-flex items-center gap-1">
+                        <ColorSwatch hex={info.colorHex ?? "000000"} />
+                        <strong>{info.colorName}</strong>
+                      </span>{" "}
+                    </>
+                  ) : null}
+                  <strong>{info.filamentType}</strong> spool with{" "}
+                  <strong>{info.remaining.toFixed(1)}g</strong> remaining. This
+                  print needs <strong>{info.required.toFixed(1)}g</strong>.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Confirm there is physically enough filament on that spool
+                  before proceeding — this will mark it as sufficient and
+                  release the job.
+                </p>
+              </>
+            )}
+
+            {info.status === "no_match" && (
+              <>
+                <p className="text-xs text-muted-foreground mt-1">
+                  No{" "}
+                  {info.filamentColor ? (
+                    <>
+                      <ColorSwatch hex={info.filamentColor} />{" "}
+                    </>
+                  ) : null}
+                  {info.filamentType ?? "matching"} filament found on{" "}
+                  <strong>{info.printerName}</strong>. Select which AMS slot
+                  holds the correct filament:
+                </p>
+                <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
+                  {info.slots.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">
+                      No spools loaded on this printer.
+                    </p>
+                  )}
+                  {info.slots.map((slot) => (
+                    <label
+                      key={slot.spoolId}
+                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${
+                        selectedSpoolId === slot.spoolId
+                          ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="slot"
+                        value={slot.spoolId}
+                        checked={selectedSpoolId === slot.spoolId}
+                        onChange={() => setSelectedSpoolId(slot.spoolId)}
+                        className="accent-amber-500"
+                      />
+                      {slot.colorHex && <ColorSwatch hex={slot.colorHex} />}
+                      <span className="flex-1">
+                        <span className="font-medium">
+                          AMS {slot.amsId + 1} · Slot {slot.trayId + 1}
+                        </span>
+                        <span className="text-muted-foreground ml-1">
+                          {slot.material}
+                          {slot.colorName ? ` — ${slot.colorName}` : ""}
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground shrink-0">
+                        {slot.remaining.toFixed(0)}g
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="bg-amber-500 hover:bg-amber-600 text-white"
+            disabled={
+              isPending ||
+              (info.status === "no_match" && selectedSpoolId === null)
+            }
+            onClick={() => {
+              const spoolId =
+                info.status === "found" ? info.spoolId : selectedSpoolId!;
+              onConfirm(spoolId);
+            }}
+          >
+            Yes, start anyway
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface PrintQueuePanelProps {
   statusFilter?: string;
 }
@@ -310,6 +569,12 @@ interface PrintQueuePanelProps {
 export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
   const { data: session } = authClient.useSession();
   const isAdmin = session?.user.role === "admin";
+
+  const [filamentShortItemId, setFilamentShortItemId] = useState<number | null>(
+    null,
+  );
+  const [filamentShortDialog, setFilamentShortDialog] =
+    useState<FilamentShortDialog | null>(null);
 
   const {
     data: queueItems,
@@ -319,6 +584,33 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
     { status: statusFilter },
     { refetchInterval: 10_000 },
   );
+
+  const { data: connectivity = [] } =
+    trpc.printQueue.listPrinterConnectivity.useQuery(undefined, {
+      refetchInterval: 30_000,
+    });
+
+  const filamentShortQuery = trpc.printQueue.getFilamentShortInfo.useQuery(
+    { itemId: filamentShortItemId! },
+    { enabled: filamentShortItemId !== null, retry: false },
+  );
+
+  useEffect(() => {
+    if (filamentShortQuery.data && filamentShortItemId !== null) {
+      setFilamentShortDialog({
+        itemId: filamentShortItemId,
+        info: filamentShortQuery.data,
+      });
+      setFilamentShortItemId(null);
+    }
+  }, [filamentShortQuery.data, filamentShortItemId]);
+
+  useEffect(() => {
+    if (filamentShortQuery.error && filamentShortItemId !== null) {
+      toast.error(filamentShortQuery.error.message);
+      setFilamentShortItemId(null);
+    }
+  }, [filamentShortQuery.error, filamentShortItemId]);
 
   const utils = trpc.useUtils();
 
@@ -358,6 +650,16 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
     onError: (err) => toast.error(err.message),
   });
 
+  const overrideFilamentShortMutation =
+    trpc.printQueue.overrideFilamentShort.useMutation({
+      onSuccess: () => {
+        toast.success("Spool overridden — print will start automatically");
+        setFilamentShortDialog(null);
+        invalidate();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
   const printingCount =
     queueItems?.filter((i) => i.status === "printing").length ?? 0;
   const pendingCount =
@@ -365,6 +667,23 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
 
   return (
     <div className="space-y-1">
+      {/* Filament short confirmation dialog */}
+      {filamentShortDialog && (
+        <FilamentShortDialogContent
+          dialog={filamentShortDialog}
+          isPending={overrideFilamentShortMutation.isPending}
+          onConfirm={(spoolId) =>
+            overrideFilamentShortMutation.mutate({
+              itemId: filamentShortDialog.itemId,
+              printerId: filamentShortDialog.info.printerId,
+              spoolId,
+              requiredGrams: filamentShortDialog.info.required,
+            })
+          }
+          onClose={() => setFilamentShortDialog(null)}
+        />
+      )}
+
       {/* Header stats */}
       {!isLoading && queueItems && queueItems.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground pb-1">
@@ -428,10 +747,12 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
                 key={item.id}
                 item={item}
                 isAdmin={isAdmin}
+                connectivity={connectivity}
                 onStart={(id) => startMutation.mutate({ itemId: id })}
                 onStop={(id) => stopMutation.mutate({ itemId: id })}
                 onCancel={(id) => cancelMutation.mutate({ itemId: id })}
                 onDelete={(id) => deleteMutation.mutate({ itemId: id })}
+                onResolveFilamentShort={(id) => setFilamentShortItemId(id)}
               />
             ))}
         </div>
