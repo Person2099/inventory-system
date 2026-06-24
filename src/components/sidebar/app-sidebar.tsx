@@ -7,8 +7,6 @@ import {
   Box,
   Settings,
   Home,
-  PackageOpen,
-  ArrowLeftRight,
   ShoppingCartIcon,
   ArrowRightToLine,
   MessageCircle,
@@ -45,9 +43,8 @@ import { cn } from "@/lib/utils";
 const coreItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Assets", url: "/assets", icon: Box },
-  { title: "Consumables", url: "/consumables", icon: PackageOpen },
   { title: "Check-in", url: "/checkin", icon: ArrowRightToLine },
-  { title: "Transactions", url: "/transactions", icon: ArrowLeftRight },
+  { title: "Activity", url: "/activity", icon: ScrollText },
   { title: "Chat", url: "/chat", icon: MessageCircle },
 ];
 
@@ -191,17 +188,6 @@ export function AppSidebar() {
                                 {pendingRequestCount}
                               </span>
                             ) : null}
-                          </a>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <a
-                            onClick={() => void navigate("/audit-log")}
-                            className="flex items-center gap-2"
-                          >
-                            <ScrollText />
-                            <span>Audit Log</span>
                           </a>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
