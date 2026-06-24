@@ -50,7 +50,11 @@ function humaniseWaitingReason(
   }
   if (s.includes("plate") || s.includes("clear"))
     return "Waiting for the build plate to be cleared. Collect the previous print from the printer, then mark the plate as cleared in Printer Monitoring.";
-  if (s.includes("no_printer") || s.includes("no printer") || s.includes("unavailable"))
+  if (
+    s.includes("no_printer") ||
+    s.includes("no printer") ||
+    s.includes("unavailable")
+  )
     return "No compatible printer is currently available. The job will start automatically when one becomes free.";
   if (s.includes("filament") || s.includes("spool"))
     return "Waiting for the required filament type to be loaded on a printer. Load the correct spool and the job will start automatically.";
@@ -111,7 +115,11 @@ function ColorSwatch({ hex }: { hex: string }) {
   );
 }
 
-type PrinterConnectivity = { id: number; name: string; connected: boolean };
+interface PrinterConnectivity {
+  id: number;
+  name: string;
+  connected: boolean;
+}
 
 function QueueItemRow({
   item,
@@ -144,9 +152,8 @@ function QueueItemRow({
 
   const offlinePrinter =
     isPending && item.printer_id != null
-      ? connectivity.find(
-          (c) => c.id === item.printer_id && !c.connected,
-        ) ?? null
+      ? (connectivity.find((c) => c.id === item.printer_id && !c.connected) ??
+        null)
       : null;
 
   const displayName =
@@ -251,7 +258,8 @@ function QueueItemRow({
           )}
           <span className="flex items-center gap-1">
             <FolderOpen className="h-3 w-3" />
-            {item.notionProjectName ?? (item.personalUse ? "Personal use" : "—")}
+            {item.notionProjectName ??
+              (item.personalUse ? "Personal use" : "—")}
           </span>
           {item.scheduled_time && (
             <span className="flex items-center gap-1">
@@ -294,21 +302,29 @@ function QueueItemRow({
         )}
 
         {/* Manual start explanation */}
-        {item.manual_start && isPending && !item.waiting_reason && !item.filament_short && (
-          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
-            <span>
-              This print is held for manual start. A staff member must press the
-              play button to begin.
-            </span>
-          </div>
-        )}
+        {item.manual_start &&
+          isPending &&
+          !item.waiting_reason &&
+          !item.filament_short && (
+            <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+              <span>
+                This print is held for manual start. A staff member must press
+                the play button to begin.
+              </span>
+            </div>
+          )}
 
         {/* Waiting reason */}
         {item.waiting_reason && isPending && (
           <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
-            <span>{humaniseWaitingReason(item.waiting_reason, item.filament_overrides ?? undefined)}</span>
+            <span>
+              {humaniseWaitingReason(
+                item.waiting_reason,
+                item.filament_overrides ?? undefined,
+              )}
+            </span>
           </div>
         )}
 
@@ -318,7 +334,8 @@ function QueueItemRow({
             <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
             <span>
               Not enough filament on the assigned spool to complete this print.
-              Replace or top up the spool, then the job will start automatically.
+              Replace or top up the spool, then the job will start
+              automatically.
             </span>
           </div>
         )}
