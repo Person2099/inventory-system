@@ -677,9 +677,12 @@ async function pollAllSnapshots(): Promise<void> {
           }
           if (!res.ok) return;
           const bytes = new Uint8Array(await res.arrayBuffer());
-          const contentType =
-            res.headers.get("content-type") ?? "image/jpeg";
-          snapshotCache.set(p.id, { bytes, contentType, fetchedAt: Date.now() });
+          const contentType = res.headers.get("content-type") ?? "image/jpeg";
+          snapshotCache.set(p.id, {
+            bytes,
+            contentType,
+            fetchedAt: Date.now(),
+          });
         }
       }),
     );
@@ -708,5 +711,9 @@ export function initPrintCamPoller(): void {
 }
 
 export async function refreshPrintCamCache(): Promise<void> {
-  await Promise.allSettled([pollAllStatuses(), pollAttribution(), pollAllSnapshots()]);
+  await Promise.allSettled([
+    pollAllStatuses(),
+    pollAttribution(),
+    pollAllSnapshots(),
+  ]);
 }

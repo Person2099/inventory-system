@@ -312,7 +312,11 @@ export default function PrintCam() {
     ) {
       return { cols: 1, rows: 1 };
     }
-    return computeLayout(visiblePrinters.length, containerSize.w, containerSize.h);
+    return computeLayout(
+      visiblePrinters.length,
+      containerSize.w,
+      containerSize.h,
+    );
   }, [visiblePrinters.length, containerSize]);
 
   const tileHeight = useMemo(() => {
@@ -396,8 +400,6 @@ export default function PrintCam() {
           </div>
         )}
       </div>
-
-
     </div>
   );
 }

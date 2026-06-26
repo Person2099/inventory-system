@@ -562,8 +562,6 @@ interface PrintQueuePanelProps {
 }
 
 export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
-
-
   const [filamentShortItemId, setFilamentShortItemId] = useState<number | null>(
     null,
   );
