@@ -1,4 +1,4 @@
-import { router, userProcedure, adminProcedure } from "@/server/trpc";
+import { router, userProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { logger as rootLogger } from "@/server/lib/logger";
