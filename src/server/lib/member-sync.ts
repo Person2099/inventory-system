@@ -87,7 +87,8 @@ export async function syncAllMembers(): Promise<SyncResult> {
       const changed =
         !prev ||
         prev.name !== member.name ||
-        prev.student_number !== member.student_number;
+        prev.student_number !== member.student_number ||
+        prev.discord_id !== member.discord_id;
 
       // Always update snapshot entry
       snapshot.set(member.id, member);

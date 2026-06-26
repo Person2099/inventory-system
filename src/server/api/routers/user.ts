@@ -27,7 +27,7 @@ export const userRouter = router({
           "Get a user by their ID, including their group and transaction records",
       },
     })
-    .input(z.object({ id: z.uuid() }))
+    .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       return prisma.user.findUnique({
         where: { id: input.id },
@@ -39,7 +39,7 @@ export const userRouter = router({
     }),
 
   update: adminProcedure
-    .input(z.object({ id: z.uuid(), data: userUpdateInput }))
+    .input(z.object({ id: z.string(), data: userUpdateInput }))
     .mutation(async ({ input }) => {
       return prisma.user.update({
         where: { id: input.id },
@@ -48,7 +48,7 @@ export const userRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ id: z.uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       return prisma.user.delete({
         where: { id: input.id },
@@ -108,7 +108,7 @@ export const userRouter = router({
   ban: adminProcedure
     .input(
       z.object({
-        id: z.uuid(),
+        id: z.string(),
         reason: z.string().optional(),
         expiresAt: z.string().datetime().optional(),
       }),
@@ -125,7 +125,7 @@ export const userRouter = router({
     }),
 
   unban: adminProcedure
-    .input(z.object({ id: z.uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       return prisma.user.update({
         where: { id: input.id },
@@ -134,7 +134,7 @@ export const userRouter = router({
     }),
 
   setRole: adminProcedure
-    .input(z.object({ id: z.uuid(), role: z.enum(["user", "admin"]) }))
+    .input(z.object({ id: z.string(), role: z.enum(["user", "admin"]) }))
     .mutation(async ({ input, ctx }) => {
       if (input.id === ctx.user.id) {
         throw new Error("Cannot change your own role");
@@ -154,13 +154,13 @@ export const userRouter = router({
   }),
 
   syncOneMember: adminProcedure
-    .input(z.object({ userId: z.uuid() }))
+    .input(z.object({ userId: z.string() }))
     .mutation(async ({ input }) => {
       return syncOneMember(input.userId);
     }),
 
   removeAvatar: adminProcedure
-    .input(z.object({ id: z.uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const key = buildAvatarKey(input.id);
       const exists = await fileExists(key);
