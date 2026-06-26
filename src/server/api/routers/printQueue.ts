@@ -1,4 +1,4 @@
-import { router, userProcedure, adminProcedure } from "@/server/trpc";
+import { router, userProcedure } from "@/server/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { logger as rootLogger } from "@/server/lib/logger";
@@ -437,7 +437,7 @@ export const printQueueRouter = router({
       }
     }),
 
-  cancelQueueItem: adminProcedure
+  cancelQueueItem: userProcedure
     .input(z.object({ itemId: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       try {
@@ -454,7 +454,7 @@ export const printQueueRouter = router({
       }
     }),
 
-  deleteQueueItem: adminProcedure
+  deleteQueueItem: userProcedure
     .input(z.object({ itemId: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       try {
@@ -471,7 +471,7 @@ export const printQueueRouter = router({
       }
     }),
 
-  startQueueItem: adminProcedure
+  startQueueItem: userProcedure
     .input(z.object({ itemId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -498,7 +498,7 @@ export const printQueueRouter = router({
       }
     }),
 
-  stopQueueItem: adminProcedure
+  stopQueueItem: userProcedure
     .input(z.object({ itemId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       try {

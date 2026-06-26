@@ -19,7 +19,6 @@ import {
   SkipForward,
   Wrench,
 } from "lucide-react";
-import { authClient } from "@/auth/client";
 import { useState, useEffect } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
@@ -125,7 +124,6 @@ interface PrinterConnectivity {
 
 function QueueItemRow({
   item,
-  isAdmin,
   connectivity,
   onStart,
   onStop,
@@ -134,7 +132,6 @@ function QueueItemRow({
   onResolveFilamentShort,
 }: {
   item: QueueItem;
-  isAdmin: boolean;
   connectivity: PrinterConnectivity[];
   onStart: (id: number) => void;
   onStop: (id: number) => void;
@@ -372,8 +369,8 @@ function QueueItemRow({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        {isAdmin && isPending && item.manual_start && (
+      <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+        {isPending && item.manual_start && (
           <Button
             variant="ghost"
             size="icon"
@@ -384,7 +381,7 @@ function QueueItemRow({
             <Play className="h-3.5 w-3.5" />
           </Button>
         )}
-        {isAdmin && isPrinting && (
+        {isPrinting && (
           <Button
             variant="ghost"
             size="icon"
@@ -395,7 +392,7 @@ function QueueItemRow({
             <Square className="h-3.5 w-3.5" />
           </Button>
         )}
-        {isAdmin && !isTerminal && (
+        {!isTerminal && (
           <Button
             variant="ghost"
             size="icon"
@@ -406,17 +403,15 @@ function QueueItemRow({
             <XCircle className="h-3.5 w-3.5" />
           </Button>
         )}
-        {isAdmin && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-            title="Remove"
-            onClick={() => onDelete(item.id)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+          title="Remove"
+          onClick={() => onDelete(item.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </div>
   );
@@ -567,9 +562,6 @@ interface PrintQueuePanelProps {
 }
 
 export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
-  const { data: session } = authClient.useSession();
-  const isAdmin = session?.user.role === "admin";
-
   const [filamentShortItemId, setFilamentShortItemId] = useState<number | null>(
     null,
   );
@@ -746,7 +738,6 @@ export function PrintQueuePanel({ statusFilter }: PrintQueuePanelProps) {
               <QueueItemRow
                 key={item.id}
                 item={item}
-                isAdmin={isAdmin}
                 connectivity={connectivity}
                 onStart={(id) => startMutation.mutate({ itemId: id })}
                 onStop={(id) => stopMutation.mutate({ itemId: id })}
