@@ -372,7 +372,7 @@ function QueueItemRow({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
         {isAdmin && isPending && item.manual_start && (
           <Button
             variant="ghost"

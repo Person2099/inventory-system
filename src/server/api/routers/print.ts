@@ -2227,17 +2227,18 @@ export const printRouter = router({
       null;
 
     const prusaPrinters = localPrinters.filter((p) => p.type === "PRUSA");
-    const allLocalIds = localPrinters.map((p) => p.id);
+    const prusaLocalIds = prusaPrinters.map((p) => p.id);
 
-    const recentJobs = allLocalIds.length
+    // Prusa attribution: most recent DISPATCHED gcode job per printer
+    const recentJobs = prusaLocalIds.length
       ? await ctx.prisma.gcodePrintJob.findMany({
           where: {
-            printerId: { in: allLocalIds },
+            printerId: { in: prusaLocalIds },
             status: "DISPATCHED",
           },
           orderBy: { createdAt: "desc" },
           include: { user: { select: { name: true, email: true } } },
-          take: allLocalIds.length * 3,
+          take: prusaLocalIds.length * 3,
         })
       : [];
 
@@ -2245,6 +2246,36 @@ export const printRouter = router({
     for (const job of recentJobs) {
       if (!jobByPrinter.has(job.printerId))
         jobByPrinter.set(job.printerId, job);
+    }
+
+    // Bambu attribution: most recent completed print queue submission per Bambuddy printer ID
+    const bambuddyPrinterIds = bambuddyPrinters.map((p) => p.id);
+    const recentQueueSubs = bambuddyPrinterIds.length
+      ? await ctx.prisma.printQueueSubmission.findMany({
+          where: {
+            capturedPrinterId: { in: bambuddyPrinterIds },
+            capturedStatus: { not: null },
+          },
+          orderBy: { capturedStartedAt: "desc" },
+          select: {
+            capturedPrinterId: true,
+            user: { select: { name: true, email: true } },
+          },
+          take: bambuddyPrinterIds.length * 3,
+        })
+      : [];
+
+    const queueSubByBambuPrinterId = new Map<
+      number,
+      (typeof recentQueueSubs)[number]
+    >();
+    for (const sub of recentQueueSubs) {
+      if (
+        sub.capturedPrinterId !== null &&
+        !queueSubByBambuPrinterId.has(sub.capturedPrinterId)
+      ) {
+        queueSubByBambuPrinterId.set(sub.capturedPrinterId, sub);
+      }
     }
 
     // ── Bambu printers — status from bambuddy directly ──────────────────────
@@ -2335,7 +2366,7 @@ export const printRouter = router({
         }
       }
 
-      const job = local ? jobByPrinter.get(local.id) : null;
+      const queueSub = queueSubByBambuPrinterId.get(bambuPrinter.id);
       return {
         printerId: localId,
         bambuddyId: bambuPrinter.id,
@@ -2362,8 +2393,10 @@ export const printRouter = router({
         ams: amsUnits,
         amsExists,
         awaitingPlateClear,
-        startedBy: job ? { name: job.user.name, email: job.user.email } : null,
-        jobStartedAt: job?.createdAt ?? null,
+        startedBy: queueSub
+          ? { name: queueSub.user.name, email: queueSub.user.email }
+          : null,
+        jobStartedAt: null,
         updatedAt: Date.now(),
       };
     });
