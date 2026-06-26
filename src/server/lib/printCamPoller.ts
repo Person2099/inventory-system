@@ -607,12 +607,45 @@ async function pollAttribution(): Promise<void> {
     const printerIds = Array.from(statusCache.keys());
     if (printerIds.length === 0) return;
 
-    const recentJobs = await prisma.gcodePrintJob.findMany({
-      where: { printerId: { in: printerIds }, status: "DISPATCHED" },
-      orderBy: { createdAt: "desc" },
-      include: { user: { select: { name: true, email: true } } },
-      take: printerIds.length * 3,
-    });
+    // Split printers into Bambu (tracked via printQueueSubmission) and Prusa (gcodePrintJob)
+    const bambuPrinterIds: string[] = [];
+    const prusaPrinterIds: string[] = [];
+    for (const printerId of printerIds) {
+      if (bambuddyIdByPrinterId.has(printerId)) {
+        bambuPrinterIds.push(printerId);
+      } else {
+        prusaPrinterIds.push(printerId);
+      }
+    }
+
+    const bambuddyIds = bambuPrinterIds
+      .map((id) => bambuddyIdByPrinterId.get(id)!)
+      .filter((id) => id != null);
+
+    const [recentJobs, recentQueueSubs] = await Promise.all([
+      prusaPrinterIds.length > 0
+        ? prisma.gcodePrintJob.findMany({
+            where: { printerId: { in: prusaPrinterIds }, status: "DISPATCHED" },
+            orderBy: { createdAt: "desc" },
+            include: { user: { select: { name: true, email: true } } },
+            take: prusaPrinterIds.length * 3,
+          })
+        : Promise.resolve([]),
+      bambuddyIds.length > 0
+        ? prisma.printQueueSubmission.findMany({
+            where: {
+              capturedPrinterId: { in: bambuddyIds },
+              capturedStatus: { not: null },
+            },
+            orderBy: { capturedStartedAt: "desc" },
+            select: {
+              capturedPrinterId: true,
+              user: { select: { name: true, email: true } },
+            },
+            take: bambuddyIds.length * 3,
+          })
+        : Promise.resolve([]),
+    ]);
 
     const jobByPrinter = new Map<string, (typeof recentJobs)[number]>();
     for (const job of recentJobs) {
@@ -621,13 +654,42 @@ async function pollAttribution(): Promise<void> {
       }
     }
 
+    const queueSubByBambuddyId = new Map<
+      number,
+      (typeof recentQueueSubs)[number]
+    >();
+    for (const sub of recentQueueSubs) {
+      if (
+        sub.capturedPrinterId !== null &&
+        !queueSubByBambuddyId.has(sub.capturedPrinterId)
+      ) {
+        queueSubByBambuddyId.set(sub.capturedPrinterId, sub);
+      }
+    }
+
     for (const [printerId, entry] of statusCache) {
-      const job = jobByPrinter.get(printerId);
-      statusCache.set(printerId, {
-        ...entry,
-        startedBy: job ? { name: job.user.name, email: job.user.email } : null,
-        jobStartedAt: job?.createdAt ?? null,
-      });
+      const bambuddyId = bambuddyIdByPrinterId.get(printerId);
+      const isBambu = bambuddyId !== undefined;
+
+      if (isBambu) {
+        const sub = queueSubByBambuddyId.get(bambuddyId);
+        statusCache.set(printerId, {
+          ...entry,
+          startedBy: sub
+            ? { name: sub.user.name, email: sub.user.email }
+            : null,
+          jobStartedAt: null,
+        });
+      } else {
+        const job = jobByPrinter.get(printerId);
+        statusCache.set(printerId, {
+          ...entry,
+          startedBy: job
+            ? { name: job.user.name, email: job.user.email }
+            : null,
+          jobStartedAt: job?.createdAt ?? null,
+        });
+      }
     }
   } finally {
     attributionPollRunning = false;
