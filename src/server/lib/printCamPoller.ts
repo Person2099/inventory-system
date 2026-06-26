@@ -672,7 +672,7 @@ async function pollAttribution(): Promise<void> {
       const isBambu = bambuddyId !== undefined;
 
       if (isBambu) {
-        const sub = queueSubByBambuddyId.get(bambuddyId!);
+        const sub = queueSubByBambuddyId.get(bambuddyId);
         statusCache.set(printerId, {
           ...entry,
           startedBy: sub
