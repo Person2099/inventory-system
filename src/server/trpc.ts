@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import superjson from "superjson";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { ZodError } from "zod";
@@ -6,6 +7,7 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { prisma } from "./lib/prisma";
 import { auth } from "./auth";
 import { type McpMeta } from "trpc-to-mcp";
+import { logger } from "./lib/logger";
 
 // Create the tRPC context, compatible with Hono and tRPC
 export const createContext = async (
@@ -28,9 +30,7 @@ export const createContext = async (
     authSession?.user?.email ??
     source ??
     "anonymous";
-  console.log(
-    `[${new Date().toISOString()}] >>> tRPC Request from ${username}`,
-  );
+  logger.debug({ username }, "tRPC request");
 
   return {
     req: opts.req, // Use tRPC's req for compatibility
@@ -61,6 +61,31 @@ export const t = initTRPC
 export const createCallerFactory = t.createCallerFactory;
 export const router = t.router;
 export const publicProcedure = t.procedure;
+
+// Kiosk procedure: validates x-kiosk-token against KIOSK_SECRET env var.
+// In development/test the check is skipped for convenience.
+// In production, KIOSK_SECRET must be set — missing secret fails closed.
+export const kioskProcedure = t.procedure.use(({ ctx, next }) => {
+  const secret = process.env.KIOSK_SECRET;
+  const isDev =
+    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+  if (!secret) {
+    if (!isDev) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+  } else {
+    const token = ctx.req.headers.get("x-kiosk-token") ?? "";
+    const secretBuf = Buffer.from(secret);
+    const tokenBuf = Buffer.from(
+      token.padEnd(secret.length, "\0").slice(0, secret.length),
+    );
+    const lengthMatch = token.length === secret.length;
+    if (!lengthMatch || !crypto.timingSafeEqual(tokenBuf, secretBuf)) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+  }
+  return next({ ctx });
+});
 
 // Protected procedure for authenticated users
 export const userProcedure = t.procedure.use(({ ctx, next }) => {

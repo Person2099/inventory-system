@@ -9,14 +9,26 @@ import { trpc } from "@/client/trpc";
 import type { inferProcedureOutput } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
 import { TableActions } from "@/components/data-table/table-actions";
+import { AssetDataRows } from "@/components/data-table/asset-data-rows";
 import { ManageLocationsDialog } from "@/components/data-table/manage-locations-dialog";
 import ErrorPage from "./Error";
 import { Route, Routes, useParams } from "react-router-dom";
 import LocationBreadcrumb from "@/components/Location";
 import ModifyItemSheet from "@/components/item-crud/ModifyItemSheet";
 import { keepPreviousData } from "@tanstack/react-query";
+import type { SortingState } from "@tanstack/react-table";
 import { authClient } from "@/auth/client";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { MapPin } from "lucide-react";
 
 type GetItemsOutput = inferProcedureOutput<
@@ -31,24 +43,26 @@ const Assets = () => {
   const { data: session } = authClient.useSession();
   const isAdmin = session?.user.role === "admin";
   const [locationsDialogOpen, setLocationsDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<GetItemsOutput | null>(null);
 
   // Manage pagination state
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [filter, setFilter] = useState("");
+  const [sorting, setSorting] = useState<SortingState>([]);
 
   // Manage Modify Sheet state
   const [selectedItem, setSelectedItem] = useState<GetItemsOutput | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   // Fetch paginated data
-  const { data, isLoading, error, refetch } = trpc.item.list.useQuery(
+  const { data, isLoading, error, refetch } = trpc.item.listForAssets.useQuery(
     {
-      consumable: false,
       locationId: locationId === "" ? null : locationId,
       filter: filter || undefined,
       page: pageIndex,
       pageSize,
+      sortOrder: sorting[0]?.desc ? "desc" : "asc",
     },
     {
       placeholderData: keepPreviousData,
@@ -116,12 +130,19 @@ const Assets = () => {
   }, []);
 
   // Handle delete action
-  const handleDelete = useCallback(
-    (item: GetItemsOutput) => {
-      deleteMut.mutate({ id: item.id });
-    },
-    [deleteMut],
-  );
+  const handleDelete = useCallback((item: GetItemsOutput) => {
+    setItemToDelete(item);
+  }, []);
+
+  const handleFilterChange = useCallback((f: string) => {
+    setFilter(f);
+    setPageIndex(0);
+  }, []);
+
+  const handleSortingChange = useCallback((s: typeof sorting) => {
+    setSorting(s);
+    setPageIndex(0);
+  }, []);
 
   // Memoize columns to prevent re-creation on every render
   const getCartQuantity = useCallback(
@@ -140,6 +161,7 @@ const Assets = () => {
         getCartQuantity,
         isDeleting: deleteMut.isPending,
         isAdmin,
+        disableFieldSorting: true,
       }),
     [
       handleAddToCart,
@@ -207,7 +229,8 @@ const Assets = () => {
         data={data?.items ?? []}
         filterKey="name"
         filterValue={filter}
-        onFilterChange={setFilter}
+        onFilterChange={handleFilterChange}
+        onSortingChange={handleSortingChange}
         BarComponents={(table) => (
           <TableActions table={table} onRefetch={refetch} isAdmin={isAdmin} />
         )}
@@ -216,6 +239,18 @@ const Assets = () => {
         onPageChange={setPageIndex}
         onPageSizeChange={setPageSize}
         totalCount={data?.totalCount}
+        renderRows={(table) => (
+          <AssetDataRows
+            table={table}
+            onAddToCart={handleAddToCart}
+            onModify={handleModify}
+            onDelete={handleDelete}
+            itemInCart={itemInCart}
+            getCartQuantity={getCartQuantity}
+            isDeleting={deleteMut.isPending}
+            isAdmin={isAdmin}
+          />
+        )}
       />
 
       {selectedItem && (
@@ -231,6 +266,37 @@ const Assets = () => {
         open={locationsDialogOpen}
         onOpenChange={setLocationsDialogOpen}
       />
+
+      <AlertDialog
+        open={!!itemToDelete}
+        onOpenChange={(open) => {
+          if (!open) setItemToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{itemToDelete?.name}</strong>
+              . This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (itemToDelete) {
+                  deleteMut.mutate({ id: itemToDelete.id });
+                  setItemToDelete(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

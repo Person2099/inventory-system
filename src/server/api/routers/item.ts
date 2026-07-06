@@ -1,5 +1,9 @@
 import { router, userProcedure, adminProcedure } from "@/server/trpc";
+import { logger as rootLogger } from "@/server/lib/logger";
+
+const logger = rootLogger.child({ module: "router:item" });
 import { prisma } from "@/server/lib/prisma";
+import { getLocationTreeIds } from "@/server/lib/locationTree";
 import { z } from "zod";
 import { createItemInput, updateItemInput } from "@/server/schema/item.schema";
 import { itemCheckout } from "../utils/item/item.checkout";
@@ -60,7 +64,14 @@ export const itemRouter = router({
           location: true,
           tags: true,
           consumable: true,
-          ItemRecords: true,
+          notesUpdatedBy: { select: { id: true, name: true } },
+          ItemRecords: {
+            include: {
+              actionBy: {
+                select: { id: true, name: true, email: true },
+              },
+            },
+          },
         },
       });
     }),
@@ -205,27 +216,29 @@ export const itemRouter = router({
         locationId: z.uuid().optional().nullable(),
         tagGroupId: z.uuid().optional(),
         filter: z.string().optional(),
+        exactName: z.string().optional(),
         page: z.number().min(0).default(0),
         pageSize: z.number().min(1).max(100).default(10),
+        sortBy: z.enum(["name", "serial", "location"]).default("name"),
+        sortOrder: z.enum(["asc", "desc"]).default("asc"),
       }),
     )
     .query(async ({ input }) => {
-      const { consumable, locationId, tagGroupId, filter, page, pageSize } =
-        input;
+      const {
+        consumable,
+        locationId,
+        tagGroupId,
+        filter,
+        exactName,
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
+      } = input;
 
-      // If locationId is provided, get all descendant location IDs including itself
       let locationIds: string[] | undefined = undefined;
       if (locationId) {
-        const locations = await prisma.$queryRaw<{ id: string }[]>`
-        WITH RECURSIVE location_tree AS (
-          SELECT id FROM "Location" WHERE id = ${locationId}
-          UNION ALL
-          SELECT l.id FROM "Location" l
-          INNER JOIN location_tree lt ON l."parentId" = lt.id
-        )
-        SELECT id FROM location_tree
-      `;
-        locationIds = locations.map((loc) => loc.id);
+        locationIds = await getLocationTreeIds(locationId);
       }
 
       // If tagGroupId is provided, get all tags directly from it
@@ -255,29 +268,43 @@ export const itemRouter = router({
               },
             }
           : {}),
-        ...(filter
+        ...(exactName
           ? {
-              OR: [
-                {
-                  name: {
-                    contains: filter,
-                    mode: "insensitive" as const,
+              name: {
+                equals: exactName,
+                mode: "insensitive" as const,
+              },
+            }
+          : filter
+            ? {
+                OR: [
+                  {
+                    name: {
+                      contains: filter,
+                      mode: "insensitive" as const,
+                    },
                   },
-                },
-                {
-                  tags: {
-                    some: {
-                      name: {
-                        contains: filter,
-                        mode: "insensitive" as const,
+                  {
+                    tags: {
+                      some: {
+                        name: {
+                          contains: filter,
+                          mode: "insensitive" as const,
+                        },
                       },
                     },
                   },
-                },
-              ],
-            }
-          : {}),
+                ],
+              }
+            : {}),
       };
+
+      const orderBy =
+        sortBy === "serial"
+          ? { serial: sortOrder }
+          : sortBy === "location"
+            ? { location: { name: sortOrder } }
+            : { name: sortOrder };
 
       // Fetch paginated items and total count concurrently
       const [items, totalCount] = await Promise.all([
@@ -289,11 +316,114 @@ export const itemRouter = router({
             consumable: true,
             ItemRecords: true,
           },
+          orderBy,
           skip: page * pageSize,
           take: pageSize,
         }),
         prisma.item.count({ where }),
       ]);
+
+      return {
+        items,
+        totalCount,
+        page,
+        pageSize,
+        pageCount: Math.ceil(totalCount / pageSize),
+      };
+    }),
+
+  listForAssets: userProcedure
+    .input(
+      z.object({
+        locationId: z.uuid().optional().nullable(),
+        tagGroupId: z.uuid().optional(),
+        filter: z.string().optional(),
+        page: z.number().min(0).default(0),
+        pageSize: z.number().min(1).max(100).default(10),
+        sortOrder: z.enum(["asc", "desc"]).default("asc"),
+      }),
+    )
+    .query(async ({ input }) => {
+      const { locationId, tagGroupId, filter, page, pageSize, sortOrder } =
+        input;
+
+      let locationIds: string[] | undefined = undefined;
+      if (locationId) {
+        locationIds = await getLocationTreeIds(locationId);
+      }
+
+      let tagIds: string[] | undefined = undefined;
+      if (tagGroupId) {
+        const tagGroup = await prisma.tagGroup.findUnique({
+          where: { id: tagGroupId },
+          include: { tags: { select: { id: true } } },
+        });
+        if (tagGroup) {
+          tagIds = tagGroup.tags.map((tag) => tag.id);
+        }
+      }
+
+      // Base structural filters (no text search) — used to fetch all sibling items
+      const baseWhere = {
+        consumable: { is: null },
+        deleted: false,
+        ...(locationIds ? { locationId: { in: locationIds } } : {}),
+        ...(tagIds && tagIds.length > 0
+          ? { tags: { some: { id: { in: tagIds } } } }
+          : {}),
+      };
+
+      // Text search added on top for the name-discovery step
+      const filteredWhere = {
+        ...baseWhere,
+        ...(filter
+          ? {
+              OR: [
+                { name: { contains: filter, mode: "insensitive" as const } },
+                {
+                  tags: {
+                    some: {
+                      name: { contains: filter, mode: "insensitive" as const },
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
+      };
+
+      // Step 1: paginate distinct names that match the filter
+      const [nameGroups, allNameGroups] = await Promise.all([
+        prisma.item.groupBy({
+          by: ["name"],
+          where: filteredWhere,
+          skip: page * pageSize,
+          take: pageSize,
+          orderBy: { name: sortOrder },
+        }),
+        prisma.item.groupBy({
+          by: ["name"],
+          where: filteredWhere,
+        }),
+      ]);
+
+      const totalCount = allNameGroups.length;
+      const names = nameGroups.map((g) => g.name);
+
+      // Step 2: fetch ALL items for those names (no text filter — show all siblings)
+      const items =
+        names.length > 0
+          ? await prisma.item.findMany({
+              where: { ...baseWhere, name: { in: names } },
+              include: {
+                location: true,
+                tags: true,
+                consumable: true,
+                ItemRecords: true,
+              },
+              orderBy: { name: sortOrder },
+            })
+          : [];
 
       return {
         items,
@@ -319,6 +449,24 @@ export const itemRouter = router({
       return await itemCheckout(ctx.user.id, input);
     }),
 
+  adminCheckoutCart: adminProcedure
+    .input(
+      z.object({
+        targetUserId: z.string(),
+        cart: z
+          .array(
+            z.object({
+              itemId: z.uuid(),
+              quantity: z.number().min(1),
+            }),
+          )
+          .nonempty(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return await itemCheckout(input.targetUserId, input.cart, ctx.user.id);
+    }),
+
   checkinCart: userProcedure
     .input(
       z
@@ -332,6 +480,71 @@ export const itemRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       return await itemCheckin(ctx.user.id, input);
+    }),
+
+  adminCheckinCart: adminProcedure
+    .input(
+      z.object({
+        targetUserId: z.string(),
+        cart: z
+          .array(
+            z.object({
+              itemId: z.uuid(),
+              quantity: z.number().min(1),
+            }),
+          )
+          .nonempty(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return await itemCheckin(input.targetUserId, input.cart, ctx.user.id);
+    }),
+
+  getImageUrl: userProcedure
+    .input(z.object({ id: z.uuid() }))
+    .query(async ({ input }) => {
+      const item = await prisma.item.findUnique({
+        where: { id: input.id, deleted: false },
+        select: { image: true },
+      });
+      if (!item?.image) return null;
+      return `/api/items/${input.id}/image`;
+    }),
+
+  countByName: userProcedure
+    .input(z.object({ id: z.uuid() }))
+    .query(async ({ input }) => {
+      const item = await prisma.item.findUnique({
+        where: { id: input.id, deleted: false },
+        select: { name: true },
+      });
+      if (!item) return 0;
+      return prisma.item.count({
+        where: { name: item.name, deleted: false, id: { not: input.id } },
+      });
+    }),
+
+  updateNote: userProcedure
+    .input(
+      z.object({
+        id: z.uuid(),
+        notes: z.string().max(2000),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return prisma.item.update({
+        where: { id: input.id, deleted: false },
+        data: {
+          notes: input.notes || null,
+          notesUpdatedByUserId: ctx.user.id,
+          notesUpdatedAt: new Date(),
+        },
+        select: {
+          notes: true,
+          notesUpdatedAt: true,
+          notesUpdatedBy: { select: { id: true, name: true } },
+        },
+      });
     }),
 
   printLabel: userProcedure
@@ -359,8 +572,9 @@ export const itemRouter = router({
         // Make request to the printer server
         let response;
         try {
-          console.log(
-            `Printing via: ${process.env.PRINTER_URL ?? "http://localhost:6767/printer"}`,
+          logger.debug(
+            { url: process.env.PRINTER_URL ?? "http://localhost:6767/printer" },
+            "Printing via printer server",
           );
           response = await fetch(
             process.env.PRINTER_URL ?? "http://localhost:6767/printer",
@@ -382,7 +596,7 @@ export const itemRouter = router({
             },
           );
         } catch (e) {
-          console.log(e);
+          logger.error({ err: e }, "Cannot reach printer server");
           return {
             ok: false as const,
             error: `Cannot reach printer server`,
@@ -391,7 +605,10 @@ export const itemRouter = router({
         // Check HTTP status
         if (!response.ok) {
           const body = await response.text();
-          console.log(`Printer server ${response.status} body:`, body);
+          logger.error(
+            { status: response.status, body },
+            "Printer server error",
+          );
           return {
             ok: false as const,
             error: `Printer server error: ${response.status}`,

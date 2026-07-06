@@ -8,7 +8,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,11 +26,12 @@ interface AddDialogProps {
 
 export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isConsumable, setIsConsumable] = useState(defaultConsumable);
+  const [isConsumable] = useState(defaultConsumable);
   const [serialExpanded, setSerialExpanded] = useState(false);
   const [overrideSerial, setOverrideSerial] = useState<string | null>(null);
   const [serialInput, setSerialInput] = useState("");
   const [isCheckingSerial, setIsCheckingSerial] = useState(false);
+  const [assetQuantity, setAssetQuantity] = useState(1);
 
   const { data: session } = authClient.useSession();
   const isAdmin = session?.user.role === "admin";
@@ -45,16 +45,22 @@ export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
     },
     onSuccess: () => {
       void utils.item.list.invalidate();
-      toast.success("Item added!");
+      void utils.item.listForAssets.invalidate();
     },
   });
 
-  const createItem = (data: z.infer<typeof createItemInput>) => {
-    mut.mutate({
-      ...data,
-      ...(overrideSerial ? { serial: overrideSerial } : {}),
-    });
+  const createItem = async (
+    data: z.infer<typeof createItemInput>,
+    quantity = 1,
+  ) => {
     setIsOpen(false);
+    for (let i = 0; i < quantity; i++) {
+      await mut.mutateAsync({
+        ...data,
+        ...(quantity === 1 && overrideSerial ? { serial: overrideSerial } : {}),
+      });
+    }
+    toast.success(quantity > 1 ? `${quantity} assets added!` : "Item added!");
   };
 
   const applySerial = async () => {
@@ -82,8 +88,18 @@ export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
     setSerialInput("");
   };
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      setAssetQuantity(1);
+      setOverrideSerial(null);
+      setSerialInput("");
+      setSerialExpanded(false);
+    }
+    setIsOpen(open);
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="ml-auto h-8 lg:flex">
           <Plus />
@@ -95,23 +111,17 @@ export function AddDialog({ defaultConsumable = false }: AddDialogProps) {
           <DialogTitle>Add an item</DialogTitle>
           <DialogDescription>Add an item to the system.</DialogDescription>
         </DialogHeader>
-        <div className="flex items-center space-x-2">
-          <Switch
-            checked={isConsumable}
-            onCheckedChange={(value) => {
-              setIsConsumable(value);
-            }}
-          />
-          <Label htmlFor="isConsumable">Consumable</Label>
-        </div>
 
         {isConsumable ? (
           <AddConsumableForm createItem={createItem} />
         ) : (
-          <AddAssetForm createItem={createItem} />
+          <AddAssetForm
+            createItem={createItem}
+            onQuantityChange={setAssetQuantity}
+          />
         )}
 
-        {isAdmin && (
+        {isAdmin && !isConsumable && assetQuantity === 1 && (
           <div className="pt-1">
             <button
               type="button"

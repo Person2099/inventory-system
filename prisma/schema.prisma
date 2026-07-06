@@ -26,6 +26,65 @@ model Consumable {
     itemId    String @unique
     available Int
     total     Int
+    minStock  Int    @default(0)
+
+    suppliers ConsumableSupplier[]
+    requests  ConsumableRequest[]
+}
+
+model ConsumableSupplier {
+    id           String     @id @default(uuid())
+    consumable   Consumable @relation(fields: [consumableId], references: [id], onDelete: Cascade)
+    consumableId String
+    name         String
+    url          String
+    sku          String?
+    notes        String?
+    isPrimary    Boolean    @default(false)
+    createdBy    User       @relation("SupplierCreatedBy", fields: [createdById], references: [id])
+    createdById  String
+    createdAt    DateTime   @default(now())
+    updatedAt    DateTime   @updatedAt
+
+    requests ConsumableRequest[]
+
+    @@index([consumableId])
+    @@index([consumableId, isPrimary])
+}
+
+enum RequestStatus {
+    PENDING
+    ORDERED
+    RECEIVED
+    CANCELLED
+}
+
+model ConsumableRequest {
+    id             String              @id @default(uuid())
+    consumable     Consumable          @relation(fields: [consumableId], references: [id])
+    consumableId   String
+    requestedBy    User                @relation("RequestRequestedBy", fields: [requestedById], references: [id])
+    requestedById  String
+    quantity       Int
+    status         RequestStatus       @default(PENDING)
+    supplier       ConsumableSupplier? @relation(fields: [supplierId], references: [id])
+    supplierId     String?
+    customSupplier String?
+    customUrl      String?
+    notes          String?
+    purchasedBy    User?               @relation("RequestPurchasedBy", fields: [purchasedById], references: [id])
+    purchasedById  String?
+    purchasedAt    DateTime?
+    receivedAt     DateTime?
+    fulfilledQty   Int?
+    cancelReason   String?
+    createdAt      DateTime            @default(now())
+    updatedAt      DateTime            @updatedAt
+
+    @@index([consumableId])
+    @@index([status, createdAt])
+    @@index([requestedById])
+    @@index([supplierId])
 }
 
 model Item {
@@ -43,6 +102,10 @@ model Item {
     consumable  Consumable?  @relation(name: "ItemToConsumable")
     ItemRecords ItemRecord[] @relation("ItemToItemRecord")
     deleted     Boolean      @default(false)
+    notes                String?
+    notesUpdatedBy       User?     @relation("ItemNotesUpdatedBy", fields: [notesUpdatedByUserId], references: [id])
+    notesUpdatedByUserId String?
+    notesUpdatedAt       DateTime?
 
     @@index([serial])
     @@index([locationId])
@@ -87,6 +150,8 @@ model ItemRecord {
     consumed       Boolean  @default(false)
     actionBy       User     @relation("UserToItemRecord", fields: [actionByUserId], references: [id])
     actionByUserId String
+    performedBy       User?    @relation("AdminPerformedItemRecord", fields: [performedByUserId], references: [id])
+    performedByUserId String?
     item           Item     @relation("ItemToItemRecord", fields: [itemId], references: [id])
     itemId         String
     notes          String?
@@ -95,6 +160,7 @@ model ItemRecord {
 
     @@index([itemId])
     @@index([actionByUserId])
+    @@index([performedByUserId])
     @@index([itemId, loaned])
 }
 
@@ -110,14 +176,25 @@ model User {
     updatedAt     DateTime     @updatedAt
     sessions      Session[]
     accounts      Account[]
-    ItemRecords   ItemRecord[] @relation("UserToItemRecord")
+    ItemRecords        ItemRecord[] @relation("UserToItemRecord")
+    PerformedRecords   ItemRecord[] @relation("AdminPerformedItemRecord")
+    ItemNotesUpdated   Item[]       @relation("ItemNotesUpdatedBy")
     printers      Printer[]
     gcodePrintJobs GcodePrintJob[]
+    SuppliersCreated      ConsumableSupplier[] @relation("SupplierCreatedBy")
+    ConsumableRequests    ConsumableRequest[]  @relation("RequestRequestedBy")
+    ConsumablePurchases   ConsumableRequest[]  @relation("RequestPurchasedBy")
+    Notifications         Notification[]       @relation("UserNotifications")
+    AuditLogs             AuditLog[]           @relation("AuditActor")
+    PrintQueueSubmissions PrintQueueSubmission[]
 
-    role       String    @default("user")
-    banned     Boolean?
-    banReason  String?
-    banExpires DateTime?
+    role             String    @default("user")
+    banned           Boolean?
+    banReason        String?
+    banExpires       DateTime?
+    studentNumber    String?   @unique
+    discordId        String?
+    lastSeenVersion  String?
 
     @@index([email])
     @@index([groupId])
@@ -215,11 +292,14 @@ model GcodePrintJob {
     s3Key            String?
     fileHashSha256   String
     fileSizeBytes    Int
-    status           GcodePrintJobStatus @default(STORED)
-    dispatchResponse String?
-    dispatchError    String?
-    createdAt        DateTime            @default(now())
-    updatedAt        DateTime            @updatedAt
+    status            GcodePrintJobStatus @default(STORED)
+    dispatchResponse  String?
+    dispatchError     String?
+    notionProjectId   String?
+    notionProjectName String?
+    personalUse       Boolean             @default(false)
+    createdAt         DateTime            @default(now())
+    updatedAt         DateTime            @updatedAt
 
     @@index([userId])
     @@index([printerId])
@@ -236,4 +316,83 @@ model Chat {
   userMessageChildIds Json   // Stores Record<string, string[]>
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+enum NotificationType {
+    REQUEST_ORDERED
+    REQUEST_RECEIVED
+    REQUEST_CANCELLED
+    REQUEST_PARTIAL
+}
+
+model Notification {
+    id         String           @id @default(uuid())
+    user       User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+    userId     String
+    type       NotificationType
+    title      String
+    body       String?
+    entityType String?
+    entityId   String?
+    readAt     DateTime?
+    createdAt  DateTime         @default(now())
+
+    @@index([userId, readAt, createdAt])
+    @@index([userId, createdAt])
+}
+
+enum AuditAction {
+    REQUEST_CREATED
+    REQUEST_STATUS_CHANGED
+    REQUEST_CANCELLED
+    REQUEST_RECEIVED
+}
+
+model PrintQueueSubmission {
+    id                      String    @id @default(uuid())
+    bambuddyQueueItemId     Int       @unique
+    bambuddyQueueCreatedAt  DateTime?
+    archiveId               Int?
+    archiveName             String?
+    user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    userId                  String
+    notionProjectId         String?
+    notionProjectName       String?
+    personalUse             Boolean   @default(false)
+    createdAt               DateTime  @default(now())
+
+    // Captured when the queue item reaches a terminal state
+    capturedStatus          String?
+    capturedAt              DateTime?
+    capturedStartedAt       DateTime?
+    capturedCompletedAt     DateTime?
+    capturedFilamentGrams   Float?
+    capturedFilamentType    String?
+    capturedFilamentColor   String?
+    capturedPrinterId       Int?
+    capturedPrinterName     String?
+    capturedLogEntryId      Int?
+
+    @@index([userId])
+    @@index([bambuddyQueueItemId])
+    @@index([capturedStatus])
+    @@index([capturedStartedAt, capturedPrinterId])
+    @@index([capturedLogEntryId])
+}
+
+model AuditLog {
+    id         String      @id @default(uuid())
+    action     AuditAction
+    actor      User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+    actorId    String?
+    entityType String
+    entityId   String
+    before     Json?
+    after      Json?
+    metadata   Json?
+    createdAt  DateTime    @default(now())
+
+    @@index([entityType, entityId, createdAt])
+    @@index([actorId, createdAt])
+    @@index([action, createdAt])
 }

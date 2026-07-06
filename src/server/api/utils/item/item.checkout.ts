@@ -22,7 +22,12 @@ interface FailedValidation {
   failure: string;
 }
 
-export const itemCheckout = async (ctx: string, cart: CartItem[]) => {
+export const itemCheckout = async (
+  ctx: string,
+  cart: CartItem[],
+  performedByUserId?: string,
+  notes?: string,
+) => {
   try {
     const validCart = await validateCart(cart);
     filterErrors(validCart);
@@ -56,8 +61,22 @@ export const itemCheckout = async (ctx: string, cart: CartItem[]) => {
       const consumableUpdates = consumables as CartObject[];
       const assetUpdates = assets as CartObject[];
       await consumableDecrementQuantity(tx, consumableUpdates);
-      await createItemRecord(ctx, tx, consumableUpdates, false);
-      await createItemRecord(ctx, tx, assetUpdates, true);
+      await createItemRecord(
+        ctx,
+        tx,
+        consumableUpdates,
+        false,
+        performedByUserId,
+        notes,
+      );
+      await createItemRecord(
+        ctx,
+        tx,
+        assetUpdates,
+        true,
+        performedByUserId,
+        notes,
+      );
     });
 
     return {
@@ -81,6 +100,8 @@ const createItemRecord = async (
   tx: ExtendedTransactionClient,
   items: CartObject[],
   loaned: boolean,
+  performedByUserId?: string,
+  notes?: string,
 ) => {
   if (items.length === 0) return;
   await tx.itemRecord.createMany({
@@ -89,6 +110,8 @@ const createItemRecord = async (
       actionByUserId: ctx,
       itemId: item.uuid,
       quantity: item.requestedQuantity,
+      ...(performedByUserId ? { performedByUserId } : {}),
+      ...(notes ? { notes } : {}),
     })),
   });
 };

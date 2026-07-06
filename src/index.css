@@ -1,6 +1,21 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@theme inline {
+  --animate-marquee: marquee var(--marquee-duration, 40s) linear infinite;
+  --animate-flash: flash 0.4s ease-out forwards;
+}
+
 @source "../node_modules/@daveyplate/better-auth-ui";
 
 @custom-variant dark (&:is(.dark *));

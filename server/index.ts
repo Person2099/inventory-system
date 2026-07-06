@@ -7,20 +7,59 @@ import { auth } from "@/server/auth";
 import { prisma } from "@/server/lib/prisma";
 import { createContext } from "@/server/trpc";
 import { HTTPException } from "hono/http-exception";
-import { logger } from "hono/logger";
+import { logger as honoLogger } from "hono/logger";
+import { logger } from "@/server/lib/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { createMcpServer } from "trpc-to-mcp";
 import { basicAuth } from "hono/basic-auth";
 import { collectMetrics, initBambuMetricsListener } from "./metrics";
 import {
-    initBambuMqttPool,
-    shutdownBambuMqttPool,
-} from "@/server/lib/bambuMqtt";
-import { initBambuStatusListener } from "@/server/lib/bambu";
+    handleStatusJson,
+    handleComponentsJson,
+    handleUnresolvedIncidents,
+} from "./health";
 import {
     initPrintCamPoller,
-    getCachedSnapshot,
+    syncBambuPrinters,
+    getSnapshot,
 } from "@/server/lib/printCamPoller";
+import { initPrintQueuePoller } from "@/server/lib/printQueuePoller";
+import sharp from "sharp";
+import {
+    uploadFile,
+    buildItemImageKey,
+    buildAvatarKey,
+    deleteFile,
+    fileExists,
+    downloadFile,
+} from "@/server/lib/s3";
+import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
+import { mountTamarinRoutes } from "@/server/lib/tamarin";
+import { mountExternalApiRoutes } from "./external-api";
+import { startMemberSyncScheduler } from "@/server/lib/member-sync";
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_IMAGE_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+]);
+
+// ─── In-memory 3MF upload job store ──────────────────────────────────────────
+// Tracks async BamBuddy upload jobs so the HTTP response can return immediately
+// (avoiding Cloudflare's 100s proxy timeout on large files).
+// Entries expire after 30 minutes to bound memory usage.
+type UploadJobState =
+    | { status: "pending"; progress: number } // 0–1 fraction of bytes sent to BamBuddy
+    | { status: "completed"; archiveId: number }
+    | { status: "failed"; error: string };
+
+const uploadJobs = new Map<string, UploadJobState>();
+
+function expireUploadJob(jobId: string): void {
+    setTimeout(() => uploadJobs.delete(jobId), 30 * 60 * 1000);
+}
 
 // Load environment variables
 config();
@@ -28,42 +67,35 @@ config();
 // ─── Process exit diagnostics ────────────────────────────────────────────────
 // Log WHY the process is dying so we can debug container restarts.
 process.on("uncaughtException", (err) => {
-    console.error(
-        `[FATAL] Uncaught exception at ${new Date().toISOString()}:`,
-        err,
-    );
+    logger.fatal({ err }, "Uncaught exception");
     process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
-    console.error(
-        `[FATAL] Unhandled rejection at ${new Date().toISOString()}:`,
-        reason,
-    );
+    logger.fatal({ reason }, "Unhandled rejection");
 });
 process.on("SIGTERM", () => {
-    console.log(
-        `[process] SIGTERM received at ${new Date().toISOString()} — shutting down gracefully`,
-    );
-    shutdownBambuMqttPool();
+    logger.info("SIGTERM received — shutting down gracefully");
     prisma.$disconnect().finally(() => process.exit(0));
 });
 process.on("SIGINT", () => {
-    console.log(
-        `[process] SIGINT received at ${new Date().toISOString()} — shutting down gracefully`,
-    );
-    shutdownBambuMqttPool();
+    logger.info("SIGINT received — shutting down gracefully");
     prisma.$disconnect().finally(() => process.exit(0));
 });
-process.on("exit", (code) =>
-    console.log(
-        `[process] Exiting with code ${code} at ${new Date().toISOString()}`,
-    ),
-);
+process.on("exit", (code) => logger.info({ code }, "Process exiting"));
 
 // Initialize Hono app
 const app = new Hono();
 
-app.use(logger());
+app.use(honoLogger());
+
+app.get("/health", (c) =>
+    c.json({ status: "ok", timestamp: new Date().toISOString() }),
+);
+
+// ─── Statuspage-compatible health API ─────────────────────────────────────────
+app.get("/api/v2/status.json", () => handleStatusJson());
+app.get("/api/v2/components.json", () => handleComponentsJson());
+app.get("/api/v2/incidents/unresolved.json", () => handleUnresolvedIncidents());
 
 // Apply CORS middleware
 app.use(
@@ -79,11 +111,22 @@ app.use(
 
 // Handle authentication routes
 app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+    const method = c.req.method;
+    const path = new URL(c.req.url).pathname;
+    const start = Date.now();
+    logger.debug({ method, path }, "auth request started");
     try {
         const response = await auth.handler(c.req.raw);
+        logger.debug(
+            { method, path, status: response.status, ms: Date.now() - start },
+            "auth request completed",
+        );
         return response;
     } catch (error) {
-        console.error("Auth handler error:", error);
+        logger.error(
+            { method, path, ms: Date.now() - start, err: error },
+            "auth request threw",
+        );
         throw new HTTPException(500, {
             message: "Authentication processing failed",
         });
@@ -98,7 +141,7 @@ app.use(
         router: appRouter,
         createContext,
         onError: ({ error, path }) => {
-            console.error(`tRPC error on ${path}:`, error);
+            logger.error({ path, err: error }, "tRPC error");
         },
     }),
 );
@@ -109,12 +152,312 @@ app.onError((err, c) => {
     if (err instanceof HTTPException) {
         return c.json({ error: err.message }, err.status);
     }
-    console.error("Unexpected error:", err);
+    logger.error({ err }, "Unexpected error");
     return c.json({ error: "Internal server error" }, 500);
 });
 
-// Health check endpoint
-app.get("/health", (c) => c.json({ status: "ok" }));
+// ─── Item image proxy ─────────────────────────────────────────────────────────
+app.get("/api/items/:id/image", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const itemId = c.req.param("id");
+    const item = await prisma.item.findUnique({
+        where: { id: itemId, deleted: false },
+        select: { image: true },
+    });
+    if (!item?.image) {
+        throw new HTTPException(404, { message: "No image" });
+    }
+
+    const bytes = await downloadFile(item.image);
+    return new Response(bytes, {
+        headers: {
+            "Content-Type": "image/webp",
+            "Cache-Control": "private, max-age=3600",
+        },
+    });
+});
+
+// ─── Item image upload ────────────────────────────────────────────────────────
+app.post("/api/items/:id/image", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+    if (session.user.role !== "admin") {
+        throw new HTTPException(403, { message: "Admin only" });
+    }
+
+    const itemId = c.req.param("id");
+    const item = await prisma.item.findUnique({
+        where: { id: itemId, deleted: false },
+        select: { id: true, image: true },
+    });
+    if (!item) {
+        throw new HTTPException(404, { message: "Item not found" });
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get("image");
+    if (!(file instanceof File)) {
+        throw new HTTPException(400, { message: "Missing image field" });
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+        throw new HTTPException(400, {
+            message: "Unsupported image type. Use JPEG, PNG, WebP, or GIF.",
+        });
+    }
+
+    const rawBytes = await file.arrayBuffer();
+    if (rawBytes.byteLength > MAX_IMAGE_BYTES) {
+        throw new HTTPException(413, { message: "Image exceeds 10 MB limit" });
+    }
+
+    const webpBuffer = await sharp(Buffer.from(rawBytes))
+        .rotate()
+        .resize({
+            width: 1200,
+            height: 1200,
+            fit: "inside",
+            withoutEnlargement: true,
+        })
+        .webp({ quality: 80 })
+        .toBuffer();
+
+    const key = buildItemImageKey(itemId);
+    await uploadFile(key, webpBuffer, "image/webp");
+
+    await prisma.item.update({
+        where: { id: itemId },
+        data: { image: key },
+    });
+
+    return c.json({ ok: true, key });
+});
+
+// ─── Apply item image to all same-name items ─────────────────────────────────
+app.post("/api/items/:id/image/apply-to-group", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+    if (session.user.role !== "admin") {
+        throw new HTTPException(403, { message: "Admin only" });
+    }
+
+    const itemId = c.req.param("id");
+    const source = await prisma.item.findUnique({
+        where: { id: itemId, deleted: false },
+        select: { id: true, name: true, image: true },
+    });
+    if (!source) {
+        throw new HTTPException(404, { message: "Item not found" });
+    }
+    if (!source.image) {
+        throw new HTTPException(400, { message: "Source item has no image" });
+    }
+
+    const siblings = await prisma.item.findMany({
+        where: { name: source.name, deleted: false, id: { not: itemId } },
+        select: { id: true, image: true },
+    });
+
+    if (siblings.length === 0) {
+        return c.json({ ok: true, updated: 0 });
+    }
+
+    const imageBytes = await downloadFile(source.image);
+
+    await Promise.all(
+        siblings.map(async (sibling) => {
+            if (sibling.image && sibling.image !== source.image) {
+                const exists = await fileExists(sibling.image);
+                if (exists) await deleteFile(sibling.image);
+            }
+            const key = buildItemImageKey(sibling.id);
+            await uploadFile(key, imageBytes, "image/webp");
+            await prisma.item.update({
+                where: { id: sibling.id },
+                data: { image: key },
+            });
+        }),
+    );
+
+    return c.json({ ok: true, updated: siblings.length });
+});
+
+// ─── Remove image from all same-name items ────────────────────────────────────
+app.delete("/api/items/:id/image/apply-to-group", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+    if (session.user.role !== "admin") {
+        throw new HTTPException(403, { message: "Admin only" });
+    }
+
+    const itemId = c.req.param("id");
+    const source = await prisma.item.findUnique({
+        where: { id: itemId, deleted: false },
+        select: { name: true },
+    });
+    if (!source) {
+        throw new HTTPException(404, { message: "Item not found" });
+    }
+
+    const siblings = await prisma.item.findMany({
+        where: {
+            name: source.name,
+            deleted: false,
+            id: { not: itemId },
+            image: { not: null },
+        },
+        select: { id: true, image: true },
+    });
+
+    if (siblings.length === 0) {
+        return c.json({ ok: true, updated: 0 });
+    }
+
+    await Promise.all(
+        siblings.map(async (sibling) => {
+            if (sibling.image?.startsWith("items/")) {
+                const exists = await fileExists(sibling.image);
+                if (exists) await deleteFile(sibling.image);
+            }
+            await prisma.item.update({
+                where: { id: sibling.id },
+                data: { image: null },
+            });
+        }),
+    );
+
+    return c.json({ ok: true, updated: siblings.length });
+});
+
+// ─── Item image delete ────────────────────────────────────────────────────────
+app.delete("/api/items/:id/image", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+    if (session.user.role !== "admin") {
+        throw new HTTPException(403, { message: "Admin only" });
+    }
+
+    const itemId = c.req.param("id");
+    const item = await prisma.item.findUnique({
+        where: { id: itemId, deleted: false },
+        select: { id: true, image: true },
+    });
+    if (!item) {
+        throw new HTTPException(404, { message: "Item not found" });
+    }
+
+    if (item.image?.startsWith("items/")) {
+        const exists = await fileExists(item.image);
+        if (exists) await deleteFile(item.image);
+    }
+
+    await prisma.item.update({
+        where: { id: itemId },
+        data: { image: null },
+    });
+
+    return c.json({ ok: true });
+});
+
+// ─── User avatar upload ───────────────────────────────────────────────────────
+app.post("/api/users/me/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get("avatar");
+    if (!(file instanceof File)) {
+        throw new HTTPException(400, { message: "Missing avatar field" });
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+        throw new HTTPException(400, {
+            message: "Unsupported image type. Use JPEG, PNG, or WebP.",
+        });
+    }
+
+    const rawBytes = await file.arrayBuffer();
+    if (rawBytes.byteLength > MAX_IMAGE_BYTES) {
+        throw new HTTPException(413, { message: "Image exceeds 10 MB limit" });
+    }
+
+    const webpBuffer = await sharp(Buffer.from(rawBytes))
+        .rotate()
+        .resize({ width: 256, height: 256, fit: "cover" })
+        .webp({ quality: 85 })
+        .toBuffer();
+
+    const userId = session.user.id;
+    const key = buildAvatarKey(userId);
+
+    // Delete existing avatar if present before overwriting
+    const exists = await fileExists(key);
+    if (exists) await deleteFile(key);
+
+    await uploadFile(key, webpBuffer, "image/webp");
+
+    await prisma.user.update({
+        where: { id: userId },
+        data: { image: key },
+    });
+
+    return c.json({ ok: true });
+});
+
+// ─── User avatar delete ───────────────────────────────────────────────────────
+app.delete("/api/users/me/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const userId = session.user.id;
+    const key = buildAvatarKey(userId);
+    const exists = await fileExists(key);
+    if (exists) await deleteFile(key);
+
+    await prisma.user.update({
+        where: { id: userId },
+        data: { image: null },
+    });
+
+    return c.json({ ok: true });
+});
+
+// ─── User avatar proxy ────────────────────────────────────────────────────────
+app.get("/api/users/:id/avatar", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id) {
+        throw new HTTPException(401, { message: "Authentication required" });
+    }
+
+    const userId = c.req.param("id");
+    const key = buildAvatarKey(userId);
+    const exists = await fileExists(key);
+    if (!exists) {
+        throw new HTTPException(404, { message: "No avatar" });
+    }
+
+    const bytes = await downloadFile(key);
+    return new Response(bytes, {
+        headers: {
+            "Content-Type": "image/webp",
+            "Cache-Control": "private, max-age=300",
+        },
+    });
+});
 
 // ─── Webcam proxy ────────────────────────────────────────────────────────────
 // Streams printer webcam feeds through the server so clients outside the local
@@ -135,25 +478,19 @@ app.get("/api/webcam/:printerId", async (c) => {
     const printerId = c.req.param("printerId");
     const mode = c.req.query("mode");
 
-    // cached_snapshot: serve ONLY from in-memory snapshot cache.
-    // Never fall through to a live upstream fetch — that would hold a connection
-    // open for up to 8 s per printer and starve tRPC requests under Vite's proxy.
-    // null  → MJPEG stream (can't snapshot server-side; client shows placeholder)
-    // undefined → poller hasn't run yet; client will retry on next tick
+    // Serve from in-memory snapshot cache — no DB hit, no upstream fetch.
     if (mode === "cached_snapshot") {
-        const cached = getCachedSnapshot(printerId);
+        const cached = getSnapshot(printerId);
         if (cached) {
-            const headers = new Headers({
-                "Content-Type": cached.contentType,
-                "Content-Length": String(cached.data.length),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "X-Cache": "HIT",
+            return new Response(cached.bytes, {
+                status: 200,
+                headers: {
+                    "Content-Type": cached.contentType,
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                },
             });
-            return new Response(cached.data, { status: 200, headers });
         }
-        // Cache miss or MJPEG — return 204 so the browser frees the connection
-        // immediately.  The client img onError handler will show a placeholder.
-        return new Response(null, { status: 204 });
+        // Cache is cold — fall through to live proxy below.
     }
 
     let webcamUrl: string;
@@ -212,7 +549,7 @@ async function proxyWebcam(
                 message: "Printer webcam timed out",
             });
         }
-        console.error(`Webcam proxy failed for ${label}:`, error);
+        logger.error({ label, err: error }, "Webcam proxy failed");
         throw new HTTPException(502, {
             message: "Failed to connect to printer webcam",
         });
@@ -242,6 +579,278 @@ async function proxyWebcam(
 
     return new Response(upstreamRes.body, { status: 200, headers });
 }
+
+// ─── BamBuddy MJPEG stream proxy ───────────────────────────────────────────
+// Proxies the BamBuddy MJPEG camera stream so clients can view it without
+// exposing the BamBuddy endpoint or API key to the browser.
+app.get("/api/bambu-stream/:bambuddyId", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const bambuddyId = Number(c.req.param("bambuddyId"));
+    if (!Number.isInteger(bambuddyId) || bambuddyId <= 0) {
+        throw new HTTPException(400, { message: "Invalid printer ID" });
+    }
+
+    const endpoint = process.env.BAMBUDDY_ENDPOINT?.replace(/\/$/, "");
+    const apiKey = process.env.BAMBUDDY_API_KEY;
+    if (!endpoint || !apiKey)
+        throw new HTTPException(503, { message: "BamBuddy not configured" });
+
+    // Get a short-lived stream token
+    let token: string;
+    try {
+        const tokenRes = await fetch(
+            `${endpoint}/api/v1/printers/camera/stream-token`,
+            {
+                method: "POST",
+                headers: { "X-API-Key": apiKey },
+                signal: AbortSignal.timeout(10_000),
+            },
+        );
+        if (!tokenRes.ok) throw new Error(`HTTP ${tokenRes.status}`);
+        const tokenData = (await tokenRes.json()) as { token?: string };
+        if (!tokenData.token) throw new Error("Missing token in response");
+        token = tokenData.token;
+    } catch (err) {
+        throw new HTTPException(502, {
+            message: `Failed to get stream token: ${err instanceof Error ? err.message : err}`,
+        });
+    }
+
+    const fps = Math.min(30, Math.max(1, Number(c.req.query("fps") ?? "15")));
+    const streamUrl = `${endpoint}/api/v1/printers/${bambuddyId}/camera/stream?token=${encodeURIComponent(token)}&fps=${fps}`;
+
+    const upstream = new AbortController();
+    let clientDisconnected = false;
+    c.req.raw.signal.addEventListener("abort", () => {
+        clientDisconnected = true;
+        upstream.abort();
+    });
+    const fetchTimeout = setTimeout(() => upstream.abort(), 10_000);
+
+    let upstreamRes: Response;
+    try {
+        upstreamRes = await fetch(streamUrl, { signal: upstream.signal });
+    } catch (err) {
+        clearTimeout(fetchTimeout);
+        if (err instanceof Error && err.name === "AbortError") {
+            if (clientDisconnected) return c.body(null, 499 as any);
+            throw new HTTPException(502, {
+                message: "BamBuddy stream timed out",
+            });
+        }
+        throw new HTTPException(502, {
+            message: "Failed to connect to BamBuddy stream",
+        });
+    }
+    clearTimeout(fetchTimeout);
+
+    if (!upstreamRes.ok || !upstreamRes.body) {
+        throw new HTTPException(502, {
+            message: `BamBuddy stream returned HTTP ${upstreamRes.status}`,
+        });
+    }
+
+    const resHeaders = new Headers();
+    const contentType = upstreamRes.headers.get("content-type");
+    if (contentType) resHeaders.set("Content-Type", contentType);
+    resHeaders.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    resHeaders.set("X-Accel-Buffering", "no");
+
+    return new Response(upstreamRes.body, { status: 200, headers: resHeaders });
+});
+
+// ─── BamBuddy thumbnail proxy ────────────────────────────────────────────────
+// Proxies print-log thumbnails through the server so clients don't need the API key.
+// Uses a stream token (?token=xxx) as required by the BamBuddy thumbnail endpoint.
+app.get("/api/bambu-thumbnail/:entryId", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const entryId = Number(c.req.param("entryId"));
+    if (!Number.isInteger(entryId) || entryId <= 0)
+        throw new HTTPException(400, { message: "Invalid entry ID" });
+
+    const endpoint = process.env.BAMBUDDY_ENDPOINT?.replace(/\/$/, "");
+    const apiKey = process.env.BAMBUDDY_API_KEY;
+    if (!endpoint || !apiKey)
+        throw new HTTPException(503, { message: "BamBuddy not configured" });
+
+    // Get a stream token (required for thumbnail auth)
+    let token: string | null = null;
+    try {
+        const tokenRes = await fetch(
+            `${endpoint}/api/v1/printers/camera/stream-token`,
+            {
+                method: "POST",
+                headers: { "X-API-Key": apiKey },
+                signal: AbortSignal.timeout(8_000),
+            },
+        );
+        if (tokenRes.ok) {
+            const tokenData = (await tokenRes.json()) as { token?: string };
+            token = tokenData.token ?? null;
+        }
+    } catch {
+        // Fall through and try without token (may work if auth disabled)
+    }
+
+    const url = token
+        ? `${endpoint}/api/v1/print-log/${entryId}/thumbnail?token=${encodeURIComponent(token)}`
+        : `${endpoint}/api/v1/print-log/${entryId}/thumbnail`;
+
+    let upstreamRes: Response;
+    try {
+        upstreamRes = await fetch(url, {
+            headers: { "X-API-Key": apiKey },
+            signal: AbortSignal.timeout(10_000),
+        });
+    } catch (err) {
+        throw new HTTPException(502, { message: "Failed to fetch thumbnail" });
+    }
+
+    if (!upstreamRes.ok)
+        throw new HTTPException(upstreamRes.status as 400, {
+            message: `BamBuddy thumbnail returned ${upstreamRes.status}`,
+        });
+
+    const contentType =
+        upstreamRes.headers.get("content-type") ?? "image/png";
+    const buffer = await upstreamRes.arrayBuffer();
+    return new Response(buffer, {
+        status: 200,
+        headers: {
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=3600",
+        },
+    });
+});
+
+// ─── BamBuddy stats export proxy ─────────────────────────────────────────────
+app.get("/api/bambu-stats-export", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const endpoint = process.env.BAMBUDDY_ENDPOINT?.replace(/\/$/, "");
+    const apiKey = process.env.BAMBUDDY_API_KEY;
+    if (!endpoint || !apiKey)
+        throw new HTTPException(503, { message: "BamBuddy not configured" });
+
+    const format = c.req.query("format") === "xlsx" ? "xlsx" : "csv";
+    const days = Math.min(3650, Math.max(1, Number(c.req.query("days") ?? "30")));
+
+    const url = `${endpoint}/api/v1/archives/stats/export?format=${format}&days=${days}`;
+    let upstreamRes: Response;
+    try {
+        upstreamRes = await fetch(url, {
+            headers: { "X-API-Key": apiKey },
+            signal: AbortSignal.timeout(30_000),
+        });
+    } catch (err) {
+        throw new HTTPException(502, { message: "Failed to fetch export" });
+    }
+
+    if (!upstreamRes.ok)
+        throw new HTTPException(upstreamRes.status as 400, {
+            message: `BamBuddy export returned ${upstreamRes.status}`,
+        });
+
+    const contentType =
+        upstreamRes.headers.get("content-type") ??
+        (format === "xlsx"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv");
+    const buffer = await upstreamRes.arrayBuffer();
+    return new Response(buffer, {
+        status: 200,
+        headers: {
+            "Content-Type": contentType,
+            "Content-Disposition": `attachment; filename="print-stats.${format}"`,
+        },
+    });
+});
+
+// ─── 3MF file upload to BamBuddy (async to avoid Cloudflare's 100s timeout) ──
+app.post("/api/print-queue/upload-3mf", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File))
+        throw new HTTPException(400, { message: "Missing file field" });
+
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".3mf"))
+        throw new HTTPException(400, { message: "Only .3mf files are accepted" });
+
+    const MAX_3MF_BYTES = 500 * 1024 * 1024;
+    const bytes = await file.arrayBuffer();
+    if (bytes.byteLength > MAX_3MF_BYTES)
+        throw new HTTPException(413, { message: "File exceeds 500 MB limit" });
+
+    const jobId = crypto.randomUUID();
+    const buffer = Buffer.from(bytes);
+    const filename = file.name;
+
+    uploadJobs.set(jobId, { status: "pending", progress: 0 });
+    expireUploadJob(jobId);
+
+    // Fire-and-forget: upload runs after we've already responded to the client.
+    Promise.resolve().then(async () => {
+        try {
+            const archiveId = await uploadBambuddyArchive(
+                filename,
+                buffer,
+                (sent, total) => {
+                    uploadJobs.set(jobId, {
+                        status: "pending",
+                        progress: total > 0 ? sent / total : 0,
+                    });
+                },
+            );
+            uploadJobs.set(jobId, { status: "completed", archiveId });
+        } catch (err) {
+            logger.error({ err, jobId }, "Failed to upload 3MF to BamBuddy");
+            uploadJobs.set(jobId, {
+                status: "failed",
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    });
+
+    return c.json({ jobId }, 202);
+});
+
+// ─── 3MF upload status polling ────────────────────────────────────────────────
+app.get("/api/print-queue/upload-status/:jobId", async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user?.id)
+        throw new HTTPException(401, { message: "Authentication required" });
+
+    const jobId = c.req.param("jobId");
+    const job = uploadJobs.get(jobId);
+    if (!job)
+        throw new HTTPException(404, { message: "Upload job not found" });
+
+    return c.json(job);
+});
+
+// ─── Tamarin SDK routes (Notion + Discord) ───────────────────────────────────
+mountTamarinRoutes(app);
+
+// ─── External FYP API routes ─────────────────────────────────────────────────
+mountExternalApiRoutes(app);
+
+// ─── Member sync scheduler ────────────────────────────────────────────────────
+// Syncs name/studentNumber from Notion member DB into user accounts hourly.
+// No-ops if Tamarin (Notion) is not configured.
+startMemberSyncScheduler();
 
 // MCP route
 const mcpPassword = process.env.MCP_PASSWORD;
@@ -296,7 +905,7 @@ app.all("/mcp", async (c) => {
         await mcpServer.connect(transport);
         return transport.handleRequest(c);
     } catch (error) {
-        console.error("MCP route error:", error);
+        logger.error({ err: error }, "MCP route error");
         throw new HTTPException(500, { message: "MCP processing failed" });
     }
 });
@@ -329,7 +938,7 @@ if (metricsEnabled) {
                 "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
             });
         } catch (error) {
-            console.error("Metrics endpoint error:", error);
+            logger.error({ err: error }, "Metrics endpoint error");
             throw new HTTPException(500, {
                 message: "Failed to collect metrics",
             });
@@ -337,23 +946,29 @@ if (metricsEnabled) {
     });
 }
 
-// ─── Initialize shared Bambu MQTT pool + listeners on startup ────────────────
-// The pool owns all MQTT connections; bambu.ts (status) and bambuCollector.ts
-// (metrics) register message listeners on it.
-initBambuMqttPool()
-    .then(() => {
-        // Register status listener (for getBambuStatus in print routes)
-        initBambuStatusListener();
-        // Register metrics listener (for /metrics endpoint) when metrics enabled
-        if (metricsEnabled && process.env.METRICS_BAMBU_ENABLED !== "false") {
-            initBambuMetricsListener();
-        }
-        // Start server-side printer status + snapshot polling for PrintCam dashboard
-        initPrintCamPoller();
-    })
-    .catch((err) => {
-        console.error("Failed to initialize Bambu MQTT pool:", err);
-    });
+// ─── Start BamBuddy API polling for Prometheus metrics ─────────────────────
+// Always start the legacy poller when enabled — we may prefer the Prometheus
+// endpoint but fall back to the legacy cache if the passthrough fails.
+if (metricsEnabled && process.env.METRICS_BAMBU_ENABLED !== "false") {
+    initBambuMetricsListener();
+}
+
+// ─── PrintCam poller + initial Bambu DB sync ─────────────────────────────────
+// Sync Bambu printers from BamBuddy into local DB immediately on startup so
+// they appear in getPrinters / getLivePrinterStatuses before the first poller
+// cycle fires. Re-sync every 5 minutes to pick up newly registered printers.
+syncBambuPrinters().catch((err) =>
+    logger.error({ err }, "Bambu printer sync failed on startup"),
+);
+setInterval(
+    () =>
+        syncBambuPrinters().catch((err) =>
+            logger.error({ err }, "Bambu printer sync failed"),
+        ),
+    5 * 60 * 1000,
+);
+initPrintCamPoller();
+initPrintQueuePoller();
 
 export default {
     port: process.env.PORT ?? 3000,

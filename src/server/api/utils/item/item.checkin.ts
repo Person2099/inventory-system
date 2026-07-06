@@ -14,7 +14,12 @@ interface CartObject {
   available: number;
 }
 
-export const itemCheckin = async (ctx: string, cart: CartItem[]) => {
+export const itemCheckin = async (
+  ctx: string,
+  cart: CartItem[],
+  performedByUserId?: string,
+  notes?: string,
+) => {
   try {
     const validCart = await validateCart(cart);
     filterErrors(validCart);
@@ -35,7 +40,7 @@ export const itemCheckin = async (ctx: string, cart: CartItem[]) => {
 
     await prisma.$transaction(async (tx) => {
       const items = assets as CartObject[];
-      await createItemRecords(tx, ctx, items);
+      await createItemRecords(tx, ctx, items, performedByUserId, notes);
     });
 
     return {
@@ -86,12 +91,16 @@ const createItemRecords = async (
   tx: ExtendedTransactionClient,
   ctx: string,
   items: CartObject[],
+  performedByUserId?: string,
+  notes?: string,
 ) => {
   const itemRecordData = items.map((item) => ({
     loaned: false,
     actionByUserId: ctx,
     itemId: item.uuid,
     quantity: item.checkedQuantity,
+    performedByUserId: performedByUserId ?? null,
+    ...(notes ? { notes } : {}),
   }));
 
   await tx.itemRecord.createMany({

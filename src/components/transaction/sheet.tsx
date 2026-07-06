@@ -1,4 +1,5 @@
 import React from "react";
+import { UserAvatar } from "@/components/user/UserAvatar";
 import {
   Sheet,
   SheetContent,
@@ -169,12 +170,36 @@ export default function TransactionDetailsSheet({
                       <div className="space-y-4">
                         <div>
                           <p className="text-xs text-neutral-400 uppercase tracking-wide mb-1">
-                            User
+                            {selectedRow.performedBy ? "Assigned To" : "User"}
                           </p>
-                          <p className="text-neutral-300">
-                            {selectedRow.actionBy?.name ?? "-"}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <UserAvatar
+                              name={selectedRow.actionBy?.name}
+                              image={selectedRow.actionBy?.image}
+                              size="sm"
+                            />
+                            <p className="text-neutral-300">
+                              {selectedRow.actionBy?.name ?? "-"}
+                            </p>
+                          </div>
                         </div>
+                        {selectedRow.performedBy && (
+                          <div>
+                            <p className="text-xs text-neutral-400 uppercase tracking-wide mb-1">
+                              Assigned By
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <UserAvatar
+                                name={selectedRow.performedBy.name}
+                                image={selectedRow.performedBy.image}
+                                size="sm"
+                              />
+                              <p className="text-neutral-300">
+                                {selectedRow.performedBy.name}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <Separator />

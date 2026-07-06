@@ -8,14 +8,25 @@ import { useCart } from "@/contexts/cart-context";
 import { trpc } from "@/client/trpc";
 import type { inferProcedureOutput } from "@trpc/server";
 import type { AppRouter } from "@/server/api/routers/_app";
-import { Dialog, DialogContent, DialogOverlay } from "@radix-ui/react-dialog";
-import { AddConsumableDialog } from "@/components/add-consumable-dialog";
+import { Dialog, DialogOverlay } from "@radix-ui/react-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { RequestConsumableDialog } from "@/components/request-consumable-dialog";
 import { TableActions } from "@/components/data-table/table-actions";
 import ErrorPage from "./Error";
 import { Route, Routes, useParams } from "react-router-dom";
 import LocationBreadcrumb from "@/components/Location";
 import ModifyItemSheet from "@/components/item-crud/ModifyItemSheet";
 import { keepPreviousData } from "@tanstack/react-query";
+import type { SortingState } from "@tanstack/react-table";
 import { authClient } from "@/auth/client";
 
 type GetItemsOutput = inferProcedureOutput<
@@ -33,9 +44,14 @@ const Consumables = () => {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [filter, setFilter] = useState("");
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<GetItemsOutput | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<GetItemsOutput | null>(null);
+
+  const sortBy = (sorting[0]?.id ?? "name") as "name" | "serial" | "location";
+  const sortOrder: "asc" | "desc" = sorting[0]?.desc ? "desc" : "asc";
 
   // Fetch paginated data
   const { data, isLoading, error, refetch } = trpc.item.list.useQuery(
@@ -45,6 +61,8 @@ const Consumables = () => {
       filter: filter || undefined,
       page: pageIndex,
       pageSize,
+      sortBy,
+      sortOrder,
     },
     {
       placeholderData: keepPreviousData,
@@ -90,12 +108,19 @@ const Consumables = () => {
   }, []);
 
   // Handle delete action
-  const handleDelete = useCallback(
-    (item: GetItemsOutput) => {
-      deleteMut.mutate({ id: item.id });
-    },
-    [deleteMut],
-  );
+  const handleDelete = useCallback((item: GetItemsOutput) => {
+    setItemToDelete(item);
+  }, []);
+
+  const handleFilterChange = useCallback((f: string) => {
+    setFilter(f);
+    setPageIndex(0);
+  }, []);
+
+  const handleSortingChange = useCallback((s: typeof sorting) => {
+    setSorting(s);
+    setPageIndex(0);
+  }, []);
 
   const getCartQuantity = useCallback(
     (id: string) => getItem(id)?.quantity ?? 0,
@@ -170,7 +195,8 @@ const Consumables = () => {
         data={data?.items ?? []}
         filterKey="name"
         filterValue={filter}
-        onFilterChange={setFilter}
+        onFilterChange={handleFilterChange}
+        onSortingChange={handleSortingChange}
         BarComponents={(table) => (
           <TableActions
             table={table}
@@ -188,14 +214,12 @@ const Consumables = () => {
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogOverlay />
-        <DialogContent>
-          {selectedItem && (
-            <AddConsumableDialog
-              item={selectedItem}
-              onClose={() => setIsDialogOpen(false)}
-            />
-          )}
-        </DialogContent>
+        {selectedItem && (
+          <RequestConsumableDialog
+            item={selectedItem}
+            onClose={() => setIsDialogOpen(false)}
+          />
+        )}
       </Dialog>
 
       {selectedItem && (
@@ -206,6 +230,37 @@ const Consumables = () => {
           onSuccess={refetch}
         />
       )}
+
+      <AlertDialog
+        open={!!itemToDelete}
+        onOpenChange={(open) => {
+          if (!open) setItemToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{itemToDelete?.name}</strong>
+              . This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (itemToDelete) {
+                  deleteMut.mutate({ id: itemToDelete.id });
+                  setItemToDelete(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

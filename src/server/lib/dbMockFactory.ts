@@ -98,6 +98,9 @@ export class DatabaseMockFactory {
       banReason: null,
       banExpires: null,
       ...overrides,
+      studentNumber: overrides?.studentNumber ?? null,
+      discordId: overrides?.discordId ?? null,
+      lastSeenVersion: overrides?.lastSeenVersion ?? null,
     } satisfies User;
   }
 
@@ -324,6 +327,7 @@ export class DatabaseMockFactory {
       itemId,
       available,
       total,
+      minStock: overrides?.minStock ?? 0,
       ...overrides,
     } satisfies Consumable;
   }
@@ -344,6 +348,7 @@ export class DatabaseMockFactory {
       actionByUserId,
       itemId,
       notes: faker.helpers.maybe(() => faker.lorem.sentence()) ?? null,
+      performedByUserId: null,
       quantity: faker.number.int({ min: 1, max: 10 }),
       createdAt: faker.date.recent({ days: 30 }),
       ...overrides,
@@ -396,6 +401,9 @@ export class DatabaseMockFactory {
       createdAt: faker.date.past({ years: 2 }),
       updatedAt: faker.date.recent(),
       deleted: faker.datatype.boolean({ probability: 0.05 }),
+      notes: null,
+      notesUpdatedByUserId: null,
+      notesUpdatedAt: null,
       // Relations
       location,
       tags, // Changed from itemTag to tags

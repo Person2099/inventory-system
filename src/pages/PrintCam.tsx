@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/client/trpc";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
-import { VideoOff } from "lucide-react";
-import logoHorizontal from "@/assets/Logo_Text_Horizontal.png";
+import logoHorizontal from "@/assets/Horizontal White & Blue.svg";
 
 interface PrinterCamData {
   printerId: string;
@@ -29,9 +28,7 @@ interface PrinterCamData {
 
 const TILE_GAP = 10;
 const MIN_DESKTOP_WIDTH = 768;
-
-const buildCachedSnapshotUrl = (printerId: string, tick: number): string =>
-  `/api/webcam/${encodeURIComponent(printerId)}?mode=cached_snapshot&_t=${tick}`;
+const OFFLINE_STATES = new Set(["UNREACHABLE", "UNKNOWN", "CONNECTING"]);
 
 function computeLayout(
   count: number,
@@ -49,13 +46,12 @@ function computeLayout(
   return { cols: count, rows: 1 };
 }
 
-function formatDuration(totalSeconds: number): string {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+function formatDuration(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
 }
 
 function statusAccentColor(state: string): string {
@@ -77,48 +73,13 @@ function statusLabel(state: string, stateMessage: string): string {
 
 function WebcamTile({
   data,
-  globalTick,
   tileHeight,
-  paused,
-  onUnavailable,
-  onAvailable,
+  snapshotTick,
 }: {
   data: PrinterCamData;
-  globalTick: number;
   tileHeight: number;
-  paused: boolean;
-  onUnavailable?: () => void;
-  onAvailable?: () => void;
+  snapshotTick: number;
 }) {
-  const [localTick, setLocalTick] = useState(0);
-  const [imgError, setImgError] = useState(false);
-  const tick = globalTick + localTick;
-  const lastSrcRef = useRef<string | null>(null);
-
-  // Reset error state when tick changes so click-to-refresh retries
-  useEffect(() => {
-    setImgError(false);
-  }, [tick]);
-
-  // Null src while paused — browser aborts in-flight request, freeing the
-  // connection slot for the tRPC refetch that triggered the pause.
-  const imgSrc =
-    !paused && data.webcamUrl
-      ? buildCachedSnapshotUrl(data.printerId, tick)
-      : null;
-
-  const displaySrc = imgSrc ?? lastSrcRef.current;
-
-  const handleImgError = useCallback(() => {
-    setImgError(true);
-    onUnavailable?.();
-  }, [onUnavailable]);
-
-  const handleImgLoad = useCallback(() => {
-    if (imgSrc) lastSrcRef.current = imgSrc;
-    onAvailable?.();
-  }, [onAvailable, imgSrc]);
-
   const accentColor = statusAccentColor(data.state);
   const isPrinting = data.state.toUpperCase() === "PRINTING";
   const isPaused = data.state.toUpperCase() === "PAUSED";
@@ -129,12 +90,26 @@ function WebcamTile({
   const smallFontSize = Math.max(7, Math.round(9 * scale));
   const overlayPadding = Math.max(4, Math.round(8 * scale));
 
+  const snapshotSrc = `/api/webcam/${encodeURIComponent(data.printerId)}?mode=cached_snapshot&_t=${snapshotTick}`;
+
   return (
     <div
-      className="relative overflow-hidden rounded-lg border border-white/10 bg-black cursor-pointer group"
+      className="relative overflow-hidden rounded-lg border border-white/10 bg-zinc-900"
       style={{ height: tileHeight }}
-      onClick={() => setLocalTick((n) => n + 1)}
     >
+      {/* Live snapshot image — hidden on error (no webcam / cache cold) */}
+      <img
+        src={snapshotSrc}
+        className="absolute inset-0 w-full h-full object-cover"
+        alt=""
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
+        onLoad={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = "";
+        }}
+      />
+
       {/* Status accent bar at top */}
       <div
         className="absolute top-0 inset-x-0 z-20 transition-colors duration-500"
@@ -143,34 +118,6 @@ function WebcamTile({
           backgroundColor: accentColor,
         }}
       />
-
-      {/* Webcam feed */}
-      {!displaySrc || imgError ? (
-        <div className="h-full w-full flex flex-col items-center justify-center gap-2 bg-zinc-900">
-          <VideoOff
-            className="text-zinc-500"
-            style={{
-              width: Math.max(20, Math.round(36 * scale)),
-              height: Math.max(20, Math.round(36 * scale)),
-            }}
-          />
-          <span
-            className="text-zinc-500 font-medium text-center leading-tight px-2"
-            style={{ fontSize }}
-          >
-            {!data.webcamUrl ? "No webcam configured" : "Webcam unavailable"}
-          </span>
-        </div>
-      ) : (
-        <img
-          key={data.printerId}
-          src={displaySrc}
-          alt={`${data.printerName} camera`}
-          className="h-full w-full object-contain"
-          onError={handleImgError}
-          onLoad={handleImgLoad}
-        />
-      )}
 
       {/* Bottom gradient overlay */}
       <div
@@ -294,18 +241,6 @@ function WebcamTile({
           )}
         </div>
       </div>
-
-      <div
-        className="absolute inset-0 z-30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
-        style={{ backgroundColor: "rgba(0,0,0,0.15)" }}
-      >
-        <span
-          className="text-white/70 font-medium tracking-wide"
-          style={{ fontSize: smallFontSize }}
-        >
-          click to refresh
-        </span>
-      </div>
     </div>
   );
 }
@@ -314,9 +249,7 @@ export default function PrintCam() {
   const { setOpen } = useSidebar();
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  const [globalTick, setGlobalTick] = useState(() => Date.now());
-  const [webcamPaused, setWebcamPaused] = useState(false);
-  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
+  const [snapshotTick, setSnapshotTick] = useState(() => Date.now());
 
   useEffect(() => {
     setOpen(false);
@@ -336,19 +269,10 @@ export default function PrintCam() {
     return () => observer.disconnect();
   }, []);
 
-  const markUnavailable = useCallback((id: string) => {
-    setUnavailableIds((prev) => new Set([...prev, id]));
+  useEffect(() => {
+    const id = setInterval(() => setSnapshotTick(Date.now()), 5_000);
+    return () => clearInterval(id);
   }, []);
-
-  const markAvailable = useCallback((id: string) => {
-    setUnavailableIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
-
-  const refreshMutation = trpc.print.refreshPrintCamCache.useMutation();
 
   const dashboardQuery = trpc.print.getPrintCamDashboard.useQuery(undefined, {
     staleTime: Infinity,
@@ -359,70 +283,24 @@ export default function PrintCam() {
   refetchRef.current = dashboardQuery.refetch;
 
   useEffect(() => {
-    // Status refetch every 10 s — pauses webcams briefly to free connection
-    // slots for the tRPC request, then resumes.
-    const statusInterval = setInterval(async () => {
-      setWebcamPaused(true);
-      await new Promise<void>((r) => setTimeout(r, 300));
-      try {
-        await Promise.race([
-          refetchRef.current(),
-          new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-        ]);
-      } finally {
-        setWebcamPaused(false);
-        setGlobalTick((n) => n + 1);
-      }
+    const statusInterval = setInterval(() => {
+      void refetchRef.current();
     }, 10_000);
-
-    // Snapshot tick every 5 s — just bumps the URL so tiles reload the latest
-    // server-side cached snapshot without pausing or refetching status.
-    const snapshotInterval = setInterval(() => {
-      setGlobalTick((n) => n + 1);
-    }, 5_000);
-
-    return () => {
-      clearInterval(statusInterval);
-      clearInterval(snapshotInterval);
-    };
+    return () => clearInterval(statusInterval);
   }, []);
 
-  const handleRefreshAll = useCallback(async () => {
-    setWebcamPaused(true);
-    await new Promise<void>((r) => setTimeout(r, 300));
-    try {
-      await Promise.race([
-        refetchRef.current(),
-        new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-      ]);
-      refreshMutation.mutate();
-    } finally {
-      setWebcamPaused(false);
-      setGlobalTick((n) => n + 1);
-    }
-  }, [refreshMutation]);
-
-  const webcamPrinters = useMemo(
-    () =>
-      (dashboardQuery.data ?? [])
-        .filter((p) => p.webcamUrl)
-        .sort(
-          (a, b) =>
-            a.printerType.localeCompare(b.printerType) ||
-            a.printerName.localeCompare(b.printerName),
-        ),
-    [dashboardQuery.data],
-  );
-
-  const visiblePrinters = useMemo(
-    () => webcamPrinters.filter((p) => !unavailableIds.has(p.printerId)),
-    [webcamPrinters, unavailableIds],
-  );
-
-  const unavailablePrinters = useMemo(
-    () => webcamPrinters.filter((p) => unavailableIds.has(p.printerId)),
-    [webcamPrinters, unavailableIds],
-  );
+  const { visiblePrinters, offlineCount } = useMemo(() => {
+    const sorted = (dashboardQuery.data ?? []).sort(
+      (a, b) =>
+        a.printerType.localeCompare(b.printerType) ||
+        a.printerName.localeCompare(b.printerName),
+    );
+    const visible = sorted.filter(
+      (p) => !OFFLINE_STATES.has(p.state.toUpperCase()),
+    );
+    const offline = sorted.length - visible.length;
+    return { visiblePrinters: visible, offlineCount: offline };
+  }, [dashboardQuery.data]);
 
   const isMobile = containerSize.w > 0 && containerSize.w < MIN_DESKTOP_WIDTH;
 
@@ -463,15 +341,14 @@ export default function PrintCam() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshAll}
-            disabled={refreshMutation.isPending}
-          >
-            Refresh All
-          </Button>
+          {offlineCount > 0 && (
+            <div className="flex items-center gap-1.5 rounded-full bg-zinc-800 border border-white/10 px-3 py-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+              <span className="text-xs text-zinc-400">
+                {offlineCount} cam{offlineCount !== 1 ? "s" : ""} offline
+              </span>
+            </div>
+          )}
           <Button
             variant="secondary"
             size="sm"
@@ -491,10 +368,10 @@ export default function PrintCam() {
           <p className="text-sm text-red-500">
             Failed to load printer data: {dashboardQuery.error.message}
           </p>
-        ) : webcamPrinters.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No printers have a webcam URL configured.
-          </p>
+        ) : visiblePrinters.length === 0 && offlineCount === 0 ? (
+          <p className="text-sm text-muted-foreground">No printers found.</p>
+        ) : visiblePrinters.length === 0 ? (
+          <p className="text-sm text-muted-foreground">All printers offline.</p>
         ) : isMobile ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-center text-muted-foreground text-sm max-w-xs">
@@ -516,39 +393,13 @@ export default function PrintCam() {
               <WebcamTile
                 key={printer.printerId}
                 data={printer}
-                globalTick={globalTick}
                 tileHeight={tileHeight}
-                paused={webcamPaused}
-                onUnavailable={() => markUnavailable(printer.printerId)}
-                onAvailable={() => markAvailable(printer.printerId)}
+                snapshotTick={snapshotTick}
               />
             ))}
           </div>
         )}
       </div>
-
-      {/* Hidden probes: unavailable cameras retry each tick without entering the
-          grid, so that the layout stays stable until one actually comes back online. */}
-      <div style={{ display: "none" }} aria-hidden>
-        {!webcamPaused &&
-          unavailablePrinters.map((printer) =>
-            printer.webcamUrl ? (
-              <img
-                key={printer.printerId}
-                src={buildCachedSnapshotUrl(printer.printerId, globalTick)}
-                onLoad={() => markAvailable(printer.printerId)}
-              />
-            ) : null,
-          )}
-      </div>
-
-      {unavailableIds.size > 0 && (
-        <p className="shrink-0 mt-2 text-xs text-zinc-500 text-right">
-          {unavailableIds.size}{" "}
-          {unavailableIds.size === 1 ? "camera needs" : "cameras need"}{" "}
-          attention
-        </p>
-      )}
     </div>
   );
 }

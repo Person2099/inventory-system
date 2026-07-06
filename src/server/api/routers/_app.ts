@@ -1,6 +1,8 @@
-import { adminProcedure, userProcedure, router } from "@/server/trpc";
+import { userProcedure, router } from "@/server/trpc";
 import { groupRouter } from "./group";
 import { consumableRouter } from "./consumable";
+import { consumableSupplierRouter } from "./consumableSupplier";
+import { consumableRequestRouter } from "./consumableRequest";
 import { itemRouter } from "./item";
 import { tagRouter } from "./tag";
 import { locationRouter } from "./location";
@@ -10,10 +12,19 @@ import { qrRouter } from "./qr";
 import z from "zod";
 import { chatRouter } from "./chat";
 import { printRouter } from "./print";
+import { userRouter } from "./user";
+import { kioskRouter } from "./kiosk";
+import { notificationRouter } from "./notification";
+import { auditLogRouter } from "./auditLog";
+import { statusRouter } from "./status";
+import { printQueueRouter } from "./printQueue";
+import { printStatsRouter } from "./printStats";
 
 export const appRouter = router({
   group: groupRouter,
   consumable: consumableRouter,
+  consumableSupplier: consumableSupplierRouter,
+  consumableRequest: consumableRequestRouter,
   item: itemRouter,
   tag: tagRouter,
   location: locationRouter,
@@ -22,6 +33,12 @@ export const appRouter = router({
   qr: qrRouter,
   chat: chatRouter,
   print: printRouter,
+  kiosk: kioskRouter,
+  notification: notificationRouter,
+  auditLog: auditLogRouter,
+  status: statusRouter,
+  printQueue: printQueueRouter,
+  printStats: printStatsRouter,
   hello: userProcedure.query(() => {
     return "hello world";
   }),
@@ -44,15 +61,7 @@ export const appRouter = router({
         greeting: `${timeGreeting}, ${ctx.user.name}! How can I help you with the inventory today?`,
       };
     }),
-  user: adminProcedure.query(async ({ ctx }) => {
-    const user = await ctx.prisma.user.findFirst({
-      where: {
-        id: ctx.user?.id,
-      },
-    });
-
-    return user;
-  }),
+  user: userRouter,
 });
 
 export type AppRouter = typeof appRouter;
