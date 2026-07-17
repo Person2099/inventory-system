@@ -23,6 +23,59 @@ export const buildPrintUploadFilename = (
     .map(toHyphenSlug)
     .join("_");
 
+/**
+ * Splits a print upload filename back into its {name}, {project}, and
+ * {file} segments. Returns null if the filename doesn't match the
+ * name_project_file convention (e.g. a legacy pre-rename upload).
+ */
+export const parsePrintUploadFilename = (
+  filename: string,
+): { name: string; project: string; file: string } | null => {
+  const parts = filename.split("_");
+  if (parts.length < 3) return null;
+  const [name, project, ...rest] = parts;
+  return { name, project, file: rest.join("_") };
+};
+
+const splitFilenameExtension = (
+  filename: string,
+): { base: string; ext: string } => {
+  const compound = /\.gcode\.3mf$/i.exec(filename);
+  if (compound) {
+    return {
+      base: filename.slice(0, filename.length - compound[0].length),
+      ext: filename.slice(filename.length - compound[0].length),
+    };
+  }
+  const idx = filename.lastIndexOf(".");
+  if (idx <= 0) return { base: filename, ext: "" };
+  return { base: filename.slice(0, idx), ext: filename.slice(idx) };
+};
+
+export const appendVersionSuffix = (filename: string, version: number) => {
+  const { base, ext } = splitFilenameExtension(filename);
+  return `${base}-v${version}${ext}`;
+};
+
+/**
+ * Appends -v2, -v3, ... before the extension until `exists` reports no
+ * collision, so two uploads that would otherwise share the same print
+ * name stay distinguishable.
+ */
+export const resolveUniqueFilename = async (
+  baseFilename: string,
+  exists: (candidate: string) => Promise<boolean>,
+): Promise<string> => {
+  if (!(await exists(baseFilename))) return baseFilename;
+  let version = 2;
+  let candidate = appendVersionSuffix(baseFilename, version);
+  while (await exists(candidate)) {
+    version += 1;
+    candidate = appendVersionSuffix(baseFilename, version);
+  }
+  return candidate;
+};
+
 export const hasAllowedGcodeExtension = (name: string) => {
   const lower = name.toLowerCase();
   return ALLOWED_GCODE_EXTENSIONS.some((ext) => lower.endsWith(ext));

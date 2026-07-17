@@ -357,6 +357,33 @@ export async function uploadArchive(
   return archiveId;
 }
 
+/** Download an archive's .3mf file bytes. */
+export async function downloadArchive(archiveId: number): Promise<Buffer> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(
+    `${endpoint}/api/v1/archives/${archiveId}/download`,
+    {
+      headers: headers(apiKey),
+      signal: AbortSignal.timeout(60_000),
+    },
+  );
+  await checkResponse(res, "download archive");
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Duplicate an archive under a new filename. Bambuddy has no rename
+ * endpoint, so this downloads the original bytes and re-uploads them as a
+ * new archive, returning the new archive's id.
+ */
+export async function duplicateArchiveWithRename(
+  archiveId: number,
+  newFilename: string,
+): Promise<number> {
+  const fileBuffer = await downloadArchive(archiveId);
+  return uploadArchive(newFilename, fileBuffer);
+}
+
 /** Send an uploaded archive to a printer. */
 export async function reprintArchive(
   archiveId: number,
@@ -815,6 +842,38 @@ export async function listBambuddyArchives(opts?: {
     signal: AbortSignal.timeout(15_000),
   });
   await checkResponse(res, "list archives");
+  const data = await res.json();
+  return Array.isArray(data) ? (data as BambuddyArchive[]) : [];
+}
+
+export async function getBambuddyArchive(
+  archiveId: number,
+): Promise<BambuddyArchive> {
+  const { endpoint, apiKey } = getConfig();
+  const res = await fetch(`${endpoint}/api/v1/archives/${archiveId}`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  await checkResponse(res, "get archive");
+  return res.json() as Promise<BambuddyArchive>;
+}
+
+/** Full-text search across archives (matches filename, print_name, tags, etc). */
+export async function searchBambuddyArchives(
+  query: string,
+  opts?: { limit?: number },
+): Promise<BambuddyArchive[]> {
+  const { endpoint, apiKey } = getConfig();
+  const params = new URLSearchParams({ q: query });
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  const res = await fetch(
+    `${endpoint}/api/v1/archives/search?${params.toString()}`,
+    {
+      headers: headers(apiKey),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  await checkResponse(res, "search archives");
   const data = await res.json();
   return Array.isArray(data) ? (data as BambuddyArchive[]) : [];
 }

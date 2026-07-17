@@ -33,8 +33,14 @@ import {
     fileExists,
     downloadFile,
 } from "@/server/lib/s3";
-import { uploadArchive as uploadBambuddyArchive } from "@/server/lib/bambuddy";
-import { buildPrintUploadFilename } from "@/server/api/utils/print/print.utils";
+import {
+    uploadArchive as uploadBambuddyArchive,
+    searchBambuddyArchives,
+} from "@/server/lib/bambuddy";
+import {
+    buildPrintUploadFilename,
+    resolveUniqueFilename,
+} from "@/server/api/utils/print/print.utils";
 import { mountTamarinRoutes } from "@/server/lib/tamarin";
 import { mountExternalApiRoutes } from "./external-api";
 import { startMemberSyncScheduler } from "@/server/lib/member-sync";
@@ -808,10 +814,12 @@ app.post("/api/print-queue/upload-3mf", async (c) => {
 
     const jobId = crypto.randomUUID();
     const buffer = Buffer.from(bytes);
-    const filename = buildPrintUploadFilename(
-        session.user.name,
-        projectName,
-        file.name,
+    const filename = await resolveUniqueFilename(
+        buildPrintUploadFilename(session.user.name, projectName, file.name),
+        async (candidate) => {
+            const matches = await searchBambuddyArchives(candidate);
+            return matches.some((a) => a.filename === candidate);
+        },
     );
 
     uploadJobs.set(jobId, { status: "pending", progress: 0 });

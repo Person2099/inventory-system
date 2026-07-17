@@ -14,9 +14,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isIP } from "node:net";
 import { Prisma } from "@prisma/client";
+import { prisma } from "@/server/lib/prisma";
 import {
   buildPrintUploadFilename,
   hashBufferSha256,
+  parsePrintUploadFilename,
+  resolveUniqueFilename,
   sanitizeFilename,
   validateGcodePayload,
 } from "@/server/api/utils/print/print.utils";
@@ -127,6 +130,14 @@ const sanitizeDbText = (value: string, maxLength = 4000) =>
   value.replace(NULL_CHAR_RE, "").slice(0, maxLength);
 
 const MAX_BAMBU_PRINT_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
+
+const printJobFilenameExists = async (candidate: string): Promise<boolean> => {
+  const existing = await prisma.gcodePrintJob.findFirst({
+    where: { originalFilename: candidate },
+    select: { id: true },
+  });
+  return existing != null;
+};
 
 const validateUploadPayloadForPrinter = (
   printerType: "PRUSA" | "BAMBU",
@@ -1507,10 +1518,9 @@ export const printRouter = router({
       }
 
       const fileBuffer = Buffer.from(input.fileContentBase64, "base64");
-      const renamedFileName = buildPrintUploadFilename(
-        ctx.user.name,
-        "Personal",
-        input.fileName,
+      const renamedFileName = await resolveUniqueFilename(
+        buildPrintUploadFilename(ctx.user.name, "Personal", input.fileName),
+        printJobFilenameExists,
       );
 
       try {
@@ -1718,10 +1728,13 @@ export const printRouter = router({
       }
 
       const fileBuffer = Buffer.from(input.fileContentBase64, "base64");
-      const renamedFileName = buildPrintUploadFilename(
-        ctx.user.name,
-        input.personalUse ? "Personal" : (input.notionProjectName ?? "Personal"),
-        input.fileName,
+      const renamedFileName = await resolveUniqueFilename(
+        buildPrintUploadFilename(
+          ctx.user.name,
+          input.personalUse ? "Personal" : (input.notionProjectName ?? "Personal"),
+          input.fileName,
+        ),
+        printJobFilenameExists,
       );
 
       try {
@@ -1967,10 +1980,26 @@ export const printRouter = router({
         });
       }
 
+      // Rename to the person reprinting — keep the original project/file
+      // segments, only the uploader segment changes.
+      const parsedOriginalName = parsePrintUploadFilename(
+        originalJob.originalFilename,
+      );
+      const projectSegment = originalJob.personalUse
+        ? "Personal"
+        : (originalJob.notionProjectName ?? parsedOriginalName?.project ?? "Personal");
+      const fileSegment =
+        parsedOriginalName?.file ?? originalJob.originalFilename;
+      const renamedFileName = buildPrintUploadFilename(
+        ctx.user.name,
+        projectSegment,
+        fileSegment,
+      );
+
       try {
         validateUploadPayloadForPrinter(
           printer.type,
-          originalJob.originalFilename,
+          renamedFileName,
           fileBuffer,
         );
       } catch (error) {
@@ -1987,12 +2016,15 @@ export const printRouter = router({
         data: {
           userId: ctx.user.id,
           printerId: printer.id,
-          originalFilename: originalJob.originalFilename,
+          originalFilename: renamedFileName,
           storedFilename: originalJob.storedFilename,
           s3Key: originalJob.s3Key,
           fileHashSha256: originalJob.fileHashSha256,
           fileSizeBytes: originalJob.fileSizeBytes,
           status: "STORED",
+          notionProjectId: originalJob.notionProjectId,
+          notionProjectName: originalJob.notionProjectName,
+          personalUse: originalJob.personalUse,
         },
       });
 
@@ -2001,7 +2033,7 @@ export const printRouter = router({
           printerType: printer.type,
           ipAddress: printer.ipAddress,
           fileBuffer,
-          originalFilename: sanitizeFilename(originalJob.originalFilename),
+          originalFilename: sanitizeFilename(renamedFileName),
           authToken: printer.authToken,
           serialNumber: printer.serialNumber,
         });

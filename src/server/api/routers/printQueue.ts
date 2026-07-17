@@ -19,6 +19,9 @@ import {
   getAvailableFilamentsForModel,
   getAllAvailableFilaments,
   listBambuddyArchives,
+  getBambuddyArchive,
+  searchBambuddyArchives,
+  duplicateArchiveWithRename,
   updateQueueItem,
   getInventoryAssignments,
   updateSpoolWeightUsed,
@@ -31,6 +34,11 @@ import {
   buildAmsMapping,
   type FilamentConstraint,
 } from "@/server/api/utils/print/amsMatching";
+import {
+  buildPrintUploadFilename,
+  parsePrintUploadFilename,
+  resolveUniqueFilename,
+} from "@/server/api/utils/print/print.utils";
 
 const logger = rootLogger.child({ module: "router:printQueue" });
 
@@ -263,7 +271,45 @@ export const printQueueRouter = router({
   addToQueue: userProcedure
     .input(addToQueueInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const { archiveId, targeting, filamentConstraints, options } = input;
+      const { targeting, filamentConstraints, options } = input;
+
+      // Rename the archive to the person queuing this print. Reusing an
+      // archive originally uploaded/named by someone else (or for a
+      // different project) duplicates it under the new name instead of
+      // mutating the shared library entry in place.
+      let archiveId = input.archiveId;
+      try {
+        const archive = await getBambuddyArchive(input.archiveId);
+        const parsed = parsePrintUploadFilename(archive.filename);
+        const projectSegment = input.personalUse
+          ? "Personal"
+          : (input.notionProjectName ?? parsed?.project ?? "Personal");
+        const fileSegment = parsed?.file ?? archive.filename;
+        const desiredName = buildPrintUploadFilename(
+          ctx.user.name,
+          projectSegment,
+          fileSegment,
+        );
+
+        if (desiredName !== archive.filename) {
+          const uniqueName = await resolveUniqueFilename(
+            desiredName,
+            async (candidate) => {
+              const matches = await searchBambuddyArchives(candidate);
+              return matches.some((a) => a.filename === candidate);
+            },
+          );
+          archiveId = await duplicateArchiveWithRename(
+            input.archiveId,
+            uniqueName,
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, archiveId: input.archiveId },
+          "Failed to rename archive for queuing — using original archive",
+        );
+      }
 
       let amsMappingResult: number[] | null = null;
       let unmatched: number[] = [];
