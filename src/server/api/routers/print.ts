@@ -2510,7 +2510,9 @@ export const printRouter = router({
             ? (releaserByQueueItemId.get(activeQueueItemId) ?? null)
             : null;
         startedBy = resolveStartedBy(
-          activeUser ?? completedUserByBambuPrinterId.get(bambuPrinter.id) ?? null,
+          activeUser ??
+            completedUserByBambuPrinterId.get(bambuPrinter.id) ??
+            null,
           fileName,
         );
       }
