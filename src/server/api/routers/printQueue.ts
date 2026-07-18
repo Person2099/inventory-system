@@ -37,6 +37,7 @@ import {
 import {
   buildPrintUploadFilename,
   parsePrintUploadFilename,
+  printedByNameFromFilename,
   resolveUniqueFilename,
 } from "@/server/api/utils/print/print.utils";
 
@@ -251,10 +252,16 @@ export const printQueueRouter = router({
 
         return items.map((item) => {
           const sub = subByItemId.get(item.id);
+          const filenameName = printedByNameFromFilename(
+            item.archive_name ?? item.library_file_name,
+          );
           return {
             ...item,
             created_by_username:
-              sub?.user.name ?? item.created_by_username ?? null,
+              filenameName ??
+              sub?.user.name ??
+              item.created_by_username ??
+              null,
             notionProjectName: sub?.notionProjectName ?? null,
             personalUse: sub?.personalUse ?? false,
           };
@@ -740,12 +747,16 @@ export const printQueueRouter = router({
       );
       return activeItems.map((item) => {
         const sub = subByItemId.get(item.id);
+        const filenameName = printedByNameFromFilename(
+          item.archive_name ?? item.library_file_name,
+        );
         return {
           id: item.id,
           position: item.position,
           status: item.status,
           file_name: item.library_file_name ?? item.archive_name ?? null,
-          submitted_by: sub?.user.name ?? item.created_by_username ?? null,
+          submitted_by:
+            filenameName ?? sub?.user.name ?? item.created_by_username ?? null,
           project: sub?.personalUse
             ? "Personal"
             : (sub?.notionProjectName ?? null),

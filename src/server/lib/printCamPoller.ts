@@ -13,6 +13,7 @@ import {
   prusaStatusResponseSchema,
   prusaJobResponseSchema,
 } from "@/server/lib/prusaSchemas";
+import { resolveStartedBy } from "@/server/api/utils/print/print.utils";
 import { logger as rootLogger } from "@/server/lib/logger";
 
 const logger = rootLogger.child({ module: "printCam" });
@@ -832,16 +833,17 @@ async function pollAttribution(): Promise<void> {
           null;
         statusCache.set(printerId, {
           ...entry,
-          startedBy: releaser,
+          startedBy: resolveStartedBy(releaser, entry.fileName),
           jobStartedAt: null,
         });
       } else {
         const job = jobByPrinter.get(printerId);
+        const fallback = job
+          ? { name: job.user.name, email: job.user.email }
+          : null;
         statusCache.set(printerId, {
           ...entry,
-          startedBy: job
-            ? { name: job.user.name, email: job.user.email }
-            : null,
+          startedBy: resolveStartedBy(fallback, entry.fileName),
           jobStartedAt: job?.createdAt ?? null,
         });
       }

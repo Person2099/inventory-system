@@ -73,6 +73,51 @@ export const resolveUniqueFilename = async (
   return candidate;
 };
 
+/**
+ * Recovers the uploader's display name from a print filename built by
+ * {@link buildPrintUploadFilename}. Returns null for filenames that don't
+ * match the name_project_file convention (legacy uploads, or archives
+ * created directly in Bambuddy outside this app).
+ *
+ * Lossy by construction: buildPrintUploadFilename collapses spaces and
+ * underscores in the name to hyphens, so a name containing a literal
+ * hyphen (e.g. "Anne-Marie") is indistinguishable from a space here and
+ * comes back as "Anne Marie". There's no way to recover the original
+ * punctuation from the slug alone.
+ */
+export const printedByNameFromFilename = (
+  filename: string | null | undefined,
+): string | null => {
+  if (!filename) return null;
+  const parsed = parsePrintUploadFilename(filename);
+  if (!parsed) return null;
+  const name = parsed.name.replace(/-/g, " ").trim();
+  return name || null;
+};
+
+/**
+ * Prefers the name encoded in the print's current filename over a
+ * DB/queue-derived fallback — the filename reflects who most recently
+ * queued/reprinted the file (see buildPrintUploadFilename call sites),
+ * which can be more current than stale queue/job attribution. Falls back
+ * to `fallback` when the filename doesn't match the naming scheme.
+ *
+ * When the filename name and fallback name agree, the fallback is kept
+ * as-is so its email is preserved. Otherwise the filename wins for
+ * display but there's no email to attach, so it's returned empty.
+ */
+export const resolveStartedBy = (
+  fallback: { name: string; email: string } | null,
+  fileName: string | null,
+): { name: string; email: string } | null => {
+  const filenameName = printedByNameFromFilename(fileName);
+  if (!filenameName) return fallback;
+  if (fallback && fallback.name.toLowerCase() === filenameName.toLowerCase()) {
+    return fallback;
+  }
+  return { name: filenameName, email: "" };
+};
+
 export const hasAllowedGcodeExtension = (name: string) => {
   const lower = name.toLowerCase();
   return ALLOWED_GCODE_EXTENSIONS.some((ext) => lower.endsWith(ext));

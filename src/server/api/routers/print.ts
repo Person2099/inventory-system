@@ -19,6 +19,7 @@ import {
   buildPrintUploadFilename,
   hashBufferSha256,
   parsePrintUploadFilename,
+  resolveStartedBy,
   resolveUniqueFilename,
   sanitizeFilename,
   validateGcodePayload,
@@ -2508,10 +2509,10 @@ export const printRouter = router({
           activeQueueItemId !== undefined
             ? (releaserByQueueItemId.get(activeQueueItemId) ?? null)
             : null;
-        startedBy =
-          activeUser ??
-          completedUserByBambuPrinterId.get(bambuPrinter.id) ??
-          null;
+        startedBy = resolveStartedBy(
+          activeUser ?? completedUserByBambuPrinterId.get(bambuPrinter.id) ?? null,
+          fileName,
+        );
       }
 
       return {
@@ -2649,9 +2650,10 @@ export const printRouter = router({
           ams: [] as AMSUnit[],
           amsExists: false,
           awaitingPlateClear: false,
-          startedBy: job
-            ? { name: job.user.name, email: job.user.email }
-            : null,
+          startedBy: resolveStartedBy(
+            job ? { name: job.user.name, email: job.user.email } : null,
+            fileName,
+          ),
           jobStartedAt: job?.createdAt ?? null,
           updatedAt: Date.now(),
         };
