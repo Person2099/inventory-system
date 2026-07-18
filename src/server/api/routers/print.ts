@@ -66,6 +66,27 @@ import {
 
 const printerTypeSchema = z.enum(["PRUSA", "BAMBU"]);
 
+const printRatingTagSchema = z.enum([
+  "GOOD",
+  "FAILED",
+  "STOPPED",
+  "MECHANICAL_ISSUE",
+  "FILAMENT_ISSUE",
+  "WARPING",
+  "STRINGING",
+  "LAYER_SHIFT",
+  "OTHER",
+]);
+
+const printRatingInput = z.object({
+  bambuddyId: z.number().int().positive(),
+  printerName: z.string().max(200).optional(),
+  fileName: z.string().max(500).optional(),
+  smiley: z.enum(["GOOD", "OKAY", "BAD"]),
+  tags: z.array(printRatingTagSchema).default([]),
+  notes: z.string().max(1000).optional(),
+});
+
 interface AmsTrayInfo {
   trayId: number;
   trayType: string;
@@ -1091,6 +1112,15 @@ export const printRouter = router({
       return { success: true, message: "Build plate marked as cleared." };
     }),
 
+  submitPrintRating: userProcedure
+    .input(printRatingInput)
+    .mutation(async ({ input, ctx }) => {
+      await ctx.prisma.printRating.create({
+        data: { ...input, userId: ctx.user?.id ?? null },
+      });
+      return { success: true };
+    }),
+
   configureAmsSlot: userProcedure
     .input(
       z.object({
@@ -1731,7 +1761,9 @@ export const printRouter = router({
       const renamedFileName = await resolveUniqueFilename(
         buildPrintUploadFilename(
           ctx.user.name,
-          input.personalUse ? "Personal" : (input.notionProjectName ?? "Personal"),
+          input.personalUse
+            ? "Personal"
+            : (input.notionProjectName ?? "Personal"),
           input.fileName,
         ),
         printJobFilenameExists,
@@ -1987,7 +2019,9 @@ export const printRouter = router({
       );
       const projectSegment = originalJob.personalUse
         ? "Personal"
-        : (originalJob.notionProjectName ?? parsedOriginalName?.project ?? "Personal");
+        : (originalJob.notionProjectName ??
+          parsedOriginalName?.project ??
+          "Personal");
       const fileSegment =
         parsedOriginalName?.file ?? originalJob.originalFilename;
       const renamedFileName = buildPrintUploadFilename(
@@ -2828,6 +2862,15 @@ export const printRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       await clearBambuddyBuildPlate(input.bambuddyId);
+      return { success: true };
+    }),
+
+  submitKioskPrintRating: kioskProcedure
+    .input(printRatingInput)
+    .mutation(async ({ input, ctx }) => {
+      await ctx.prisma.printRating.create({
+        data: { ...input, userId: null },
+      });
       return { success: true };
     }),
 });

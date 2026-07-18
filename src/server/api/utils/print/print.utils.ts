@@ -18,10 +18,7 @@ export const buildPrintUploadFilename = (
   userName: string,
   projectName: string,
   originalFilename: string,
-) =>
-  [userName, projectName, originalFilename]
-    .map(toHyphenSlug)
-    .join("_");
+) => [userName, projectName, originalFilename].map(toHyphenSlug).join("_");
 
 /**
  * Splits a print upload filename back into its {name}, {project}, and

@@ -348,7 +348,9 @@ export function PrintJobModal({
         form.append("file", uploadFile);
         form.append(
           "projectName",
-          selectedProjectId === "__personal__" ? "" : (selectedProject?.name ?? ""),
+          selectedProjectId === "__personal__"
+            ? ""
+            : (selectedProject?.name ?? ""),
         );
         form.append(
           "personalUse",

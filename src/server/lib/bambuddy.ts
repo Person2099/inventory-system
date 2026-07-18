@@ -360,13 +360,10 @@ export async function uploadArchive(
 /** Download an archive's .3mf file bytes. */
 export async function downloadArchive(archiveId: number): Promise<Buffer> {
   const { endpoint, apiKey } = getConfig();
-  const res = await fetch(
-    `${endpoint}/api/v1/archives/${archiveId}/download`,
-    {
-      headers: headers(apiKey),
-      signal: AbortSignal.timeout(60_000),
-    },
-  );
+  const res = await fetch(`${endpoint}/api/v1/archives/${archiveId}/download`, {
+    headers: headers(apiKey),
+    signal: AbortSignal.timeout(60_000),
+  });
   await checkResponse(res, "download archive");
   return Buffer.from(await res.arrayBuffer());
 }
